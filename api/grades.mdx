@@ -1,10 +1,10 @@
 ---
-title: "Grades API: Criteria, Grade Entry, and Gradebook"
+title: "Grades API: Criteria, Weighted Grades, and Gradebook"
 sidebarTitle: "Grades"
-description: "Define weighted grading criteria per evaluation period, enter grades for students, view the gradebook with computed averages, and retrieve final averages and report cards."
+description: "Define weighted grading criteria, enter grades per criterion, view the gradebook with computed averages, and retrieve student averages and report cards."
 ---
 
-The Grades API covers the full grading workflow in Cole: directors and professors define evaluation periods within an academic period; professors then attach weighted criteria (e.g. "Quiz 20 %, Project 30 %, Final Exam 50 %") to each criterion; grades are entered per criterion per student; and the gradebook endpoint computes weighted averages automatically. Averages and report cards aggregate those results across all evaluation periods.
+The Grades API covers the full grading workflow in Cole: directors and professors define evaluation periods within an academic period; professors then attach weighted criteria (e.g. "Quiz 20 %, Project 30 %, Final Exam 50 %") to each assignment within those periods; grades are entered per criterion per student; and the gradebook endpoint computes weighted averages automatically. Averages and report cards aggregate those results across all evaluation periods.
 
 <Note>
   Evaluation period routes require `role:director` or `role:profesor`. All criteria, grade, gradebook, and average routes require `role:profesor` or `role:director` as indicated per section. All routes require a valid Sanctum bearer token. Criteria and grade entry routes additionally enforce professor ownership — a professor can only manage criteria and grades for their own assignments.

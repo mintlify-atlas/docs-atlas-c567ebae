@@ -1,5 +1,5 @@
 ---
-title: "Courses and Sections API: Cursos and Paralelos"
+title: "Courses & Sections API: Cursos, Paralelos, Subjects"
 sidebarTitle: "Courses & Sections"
 description: "Manage academic courses (cursos) and their sections (paralelos) within academic periods. Courses group students; paralelos are the class sections."
 ---
@@ -417,6 +417,8 @@ curl -X POST https://your-domain.com/api/paralelos \
 
 ### Update Paralelo
 
+<Note>Requires `auth:sanctum`. Available to all authenticated roles.</Note>
+
 ```http
 PUT /api/paralelos/{id}
 ```
@@ -458,6 +460,8 @@ curl -X PUT https://your-domain.com/api/paralelos/1 \
 ---
 
 ### Delete Paralelo
+
+<Note>Requires `auth:sanctum`. Available to all authenticated roles.</Note>
 
 ```http
 DELETE /api/paralelos/{id}

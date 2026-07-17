@@ -1,5 +1,5 @@
 ---
-title: "Multi-Tenancy in Cole: Isolated School Accounts"
+title: "Multi-Tenancy in Cole: Per-School Data Isolation"
 sidebarTitle: "Multi-Tenancy"
 description: "Each school in Cole is a tenant. All data is isolated automatically using the BelongsToTenant trait and global Eloquent scopes."
 ---
@@ -10,7 +10,7 @@ Cole is a multi-tenant platform where every school operates as a fully isolated 
 
 A tenant represents a single school registered in Cole. It is identified by a numeric `id` and a human-readable `slug`. Every user, teacher, student, and resource created inside the platform belongs to one tenant.
 
-The `tenants` table stores three identifying fields:
+The `tenants` table stores four key fields:
 
 | Column      | Type      | Description                              |
 |-------------|-----------|------------------------------------------|
@@ -161,7 +161,7 @@ Every model listed below uses the `BelongsToTenant` trait. All queries against t
 
 ## Super-Admin and Cross-Tenant Access
 
-The `super-admin` role is the only role whose `tenant_id` is `null`. Because the global scope and the auto-assign hook only activate when `auth()->check()` is `true` **and** the user has a non-null `tenant_id`, a super-admin can query across all tenants without restriction.
+The `super-admin` role is the only role whose `tenant_id` is `null`. The `BelongsToTenant` global scope fires whenever `auth()->check()` returns `true` — which includes super-admins — but because the authenticated user's `tenant_id` is `null`, the appended `WHERE tenant_id = NULL` clause matches no rows in normal SQL comparison. In practice, super-admin queries should bypass tenant-scoped models entirely and use `withoutGlobalScope('tenant')` where cross-tenant access is required.
 
 <Note>
   The `CheckModule` middleware also short-circuits for `super-admin` users, granting them access to every module endpoint regardless of a tenant's module configuration. See [Modules](/concepts/modules) for details.

@@ -1,7 +1,7 @@
 ---
 title: "Authentication API: Login, Register, and Token Management"
 sidebarTitle: "Auth"
-description: "Endpoints for user registration, login with token rotation, logout, and fetching the authenticated user's profile and roles."
+description: "Endpoints for user registration, login with Sanctum token rotation, logout, and fetching the authenticated user's full profile and assigned roles."
 ---
 
 Cole uses [Laravel Sanctum](https://laravel.com/docs/9.x/sanctum) for API token authentication. Every authenticated request must include an `Authorization: Bearer <token>` header. Tokens are plain-text strings returned on registration and login. Cole enforces **token rotation on login** — all existing tokens for the user are deleted before a new one is issued, ensuring only one active session per user at a time.

@@ -1,5 +1,5 @@
 ---
-title: "Roles and Permissions in Cole"
+title: "Roles and Permissions in Cole: Five-Role Access Model"
 sidebarTitle: "Roles & Permissions"
 description: "Cole uses five Spatie roles — super-admin, director, profesor, estudiante, and padre — each with distinct API access scoped to their function."
 ---
@@ -47,7 +47,7 @@ Role::create(['name' => 'padre']);
 
 <CardGroup cols={1}>
   <Card title="super-admin" icon="crown">
-    Platform-level administrator. Has no `tenant_id`, so all Eloquent global scopes are bypassed. Can create and manage tenants, assign modules, and access any endpoint across every school account.
+    Platform-level administrator. Has no `tenant_id`. The `CheckModule` middleware is bypassed entirely for this role. Can create and manage tenants, assign modules, and access any module-gated endpoint across every school account.
   </Card>
   <Card title="director" icon="building-columns">
     School principal. Belongs to one tenant. Manages the full operational data of their school: teachers, students, courses, class sections (paralelos), academic periods, and evaluation criteria.
@@ -78,7 +78,7 @@ Role::create(['name' => 'padre']);
 <Accordion title="super-admin — Platform Administrator">
   The `super-admin` role is intended for the platform operator, not for school staff. A super-admin's `tenant_id` is `null`, which means:
 
-  - The `BelongsToTenant` global scope does **not** apply — queries return records from all tenants.
+  - The `BelongsToTenant` global scope fires but compares against `null`, so tenant-scoped models must be queried with `withoutGlobalScope('tenant')` to retrieve records across all tenants.
   - The `CheckModule` middleware is bypassed — all module-gated endpoints are accessible.
 
   Typical super-admin operations:
