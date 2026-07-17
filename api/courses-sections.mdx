@@ -1,0 +1,693 @@
+---
+title: "Courses and Sections API: Cursos and Paralelos"
+sidebarTitle: "Courses & Sections"
+description: "Manage academic courses (cursos) and their sections (paralelos) within academic periods. Courses group students; paralelos are the class sections."
+---
+
+Cole organizes the academic calendar around **academic periods** (periodos). Within each period, a **curso** (course/grade level) groups students by academic year or programme, while a **paralelo** (section) is a specific class within that course — for example, "Décimo A" or "Décimo B". Subjects (materias) are the individual disciplines taught across courses and paralelos.
+
+All endpoints require a valid `Bearer` token obtained from the [authentication](/api/auth) flow. Director-only routes additionally require the `role:director` middleware to be satisfied.
+
+---
+
+## Cursos
+
+Cursos are scoped to an academic period. Every `POST`, `PUT`, and `DELETE` operation is restricted to users with the `director` role. The period must be **active** (`activo = true`) before new cursos can be created.
+
+### List Cursos
+
+<Note>
+  Requires `auth:sanctum`. Available to all authenticated roles within the
+  tenant.
+</Note>
+
+```http
+GET /api/periodos/{periodo}/cursos
+```
+
+Returns all cursos belonging to the given period, including their nested paralelos.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/cursos \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Décimo",
+    "nivel": "Básica Superior",
+    "descripcion": "Décimo año de educación básica",
+    "estado": true,
+    "academic_period_id": 1,
+    "created_at": "2026-04-07T10:00:00.000000Z",
+    "updated_at": "2026-04-07T10:00:00.000000Z",
+    "periodo": {
+      "id": 1,
+      "nombre": "2026-2027"
+    },
+    "paralelos": [
+      { "id": 1, "nombre": "A", "turno": "Matutino", "capacidad": 35 },
+      { "id": 2, "nombre": "B", "turno": "Matutino", "capacidad": 35 }
+    ]
+  }
+]
+```
+
+---
+
+### Get Curso
+
+```http
+GET /api/periodos/{periodo}/cursos/{id}
+```
+
+Returns a single curso with its paralelos.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the curso.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/cursos/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Create Curso
+
+<Note>Requires `role:director`. The academic period must be active.</Note>
+
+```http
+POST /api/periodos/{periodo}/cursos
+```
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="nombre" type="string" required>
+  Name of the course, e.g. `"Décimo"`. Must be unique within the same
+  tenant + period combination.
+</ParamField>
+
+<ParamField body="nivel" type="string" required>
+  Academic level label, e.g. `"Básica Superior"` or `"Bachillerato"`.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Optional free-text description of the course.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/periodos/1/cursos \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "nombre": "Décimo",
+    "nivel": "Básica Superior",
+    "descripcion": "Décimo año de educación básica"
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "id": 1,
+  "nombre": "Décimo",
+  "nivel": "Básica Superior",
+  "descripcion": "Décimo año de educación básica",
+  "estado": true,
+  "academic_period_id": 1,
+  "created_at": "2026-04-07T10:00:00.000000Z",
+  "updated_at": "2026-04-07T10:00:00.000000Z",
+  "periodo": {
+    "id": 1,
+    "nombre": "2026-2027"
+  }
+}
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `403 Forbidden` | The academic period is inactive. |
+| `422 Unprocessable Entity` | Validation failed (missing required fields). |
+
+---
+
+### Update Curso
+
+<Note>Requires `role:director`.</Note>
+
+```http
+PUT /api/periodos/{periodo}/cursos/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the curso to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="nombre" type="string">
+  Updated course name.
+</ParamField>
+
+<ParamField body="nivel" type="string">
+  Updated academic level.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Updated description.
+</ParamField>
+
+<ParamField body="estado" type="boolean">
+  Set to `false` to deactivate the course.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/periodos/1/cursos/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "descripcion": "Updated description" }'
+```
+
+---
+
+### Delete Curso
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/periodos/{periodo}/cursos/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the curso to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/periodos/1/cursos/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Curso eliminado" }
+```
+
+---
+
+### List Paralelos for a Curso
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/cursos/{id}/paralelos
+```
+
+Returns all paralelos (sections) that belong to the specified curso.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the curso.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/cursos/1/paralelos \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "data": [
+    { "id": 1, "nombre": "A", "turno": "Matutino", "capacidad": 35, "curso_id": 1 },
+    { "id": 2, "nombre": "B", "turno": "Matutino", "capacidad": 35, "curso_id": 1 }
+  ]
+}
+```
+
+---
+
+## Paralelos
+
+Paralelos (sections) are child resources of a curso. They are not period-scoped at the URL level but are implicitly scoped to the tenant because their parent `curso_id` is tenant-validated on write.
+
+### List Paralelos
+
+<Note>Requires `auth:sanctum`.</Note>
+
+```http
+GET /api/paralelos
+```
+
+Returns all paralelos in the tenant, each with the parent `curso` eagerly loaded.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/paralelos \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "A",
+    "turno": "Matutino",
+    "capacidad": 35,
+    "curso_id": 1,
+    "tenant_id": 1,
+    "curso": {
+      "id": 1,
+      "nombre": "Décimo",
+      "nivel": "Básica Superior"
+    }
+  }
+]
+```
+
+---
+
+### Get Paralelo
+
+```http
+GET /api/paralelos/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the paralelo.
+</ParamField>
+
+---
+
+### Create Paralelo
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/paralelos
+```
+
+The combination of `curso_id` + `nombre` must be unique within the tenant.
+
+**Request Body**
+
+<ParamField body="curso_id" type="integer" required>
+  ID of the parent curso. Must belong to the authenticated user's tenant.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Label for the section, e.g. `"A"`, `"B"`, or `"Vespertino"`.
+</ParamField>
+
+<ParamField body="turno" type="string">
+  School shift, e.g. `"Matutino"` or `"Vespertino"`.
+</ParamField>
+
+<ParamField body="capacidad" type="integer">
+  Maximum number of students allowed in this section.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/paralelos \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "curso_id": 1,
+    "nombre": "A",
+    "turno": "Matutino",
+    "capacidad": 35
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "id": 1,
+  "curso_id": 1,
+  "nombre": "A",
+  "turno": "Matutino",
+  "capacidad": 35,
+  "tenant_id": 1,
+  "created_at": "2026-04-07T10:00:00.000000Z",
+  "updated_at": "2026-04-07T10:00:00.000000Z"
+}
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `403 Forbidden` | The `curso_id` does not belong to the authenticated user's tenant. |
+| `422 Unprocessable Entity` | Validation failed or section name already exists for the curso. |
+
+---
+
+### Update Paralelo
+
+```http
+PUT /api/paralelos/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the paralelo to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="curso_id" type="integer" required>
+  ID of the parent curso (must belong to the tenant).
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Updated section label.
+</ParamField>
+
+<ParamField body="turno" type="string">
+  Updated school shift.
+</ParamField>
+
+<ParamField body="capacidad" type="integer">
+  Updated student capacity.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/paralelos/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "curso_id": 1, "nombre": "A", "capacidad": 40 }'
+```
+
+---
+
+### Delete Paralelo
+
+```http
+DELETE /api/paralelos/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the paralelo to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/paralelos/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Paralelo eliminado correctamente" }
+```
+
+---
+
+## Subjects
+
+Subjects (materias) are the individual disciplines — such as Mathematics, Science, or History — that can be taught by professors and scheduled within courses and sections.
+
+### List Subjects
+
+<Note>Requires `role:director` or `role:profesor`.</Note>
+
+```http
+GET /api/subjects
+```
+
+Returns all subjects belonging to the tenant.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/subjects \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  { "id": 1, "name": "Matemáticas", "tenant_id": 1 },
+  { "id": 2, "name": "Ciencias Naturales", "tenant_id": 1 }
+]
+```
+
+---
+
+### Get Subject
+
+<Note>Requires `role:director` or `role:profesor`.</Note>
+
+```http
+GET /api/subjects/{subject}
+```
+
+**Path Parameters**
+
+<ParamField path="subject" type="integer" required>
+  The ID of the subject.
+</ParamField>
+
+---
+
+### Create Subject
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/subjects
+```
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  The name of the subject, e.g. `"Matemáticas"`.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/subjects \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "name": "Matemáticas" }'
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "id": 1, "name": "Matemáticas", "tenant_id": 1 }
+```
+
+---
+
+### Update Subject
+
+<Note>Requires `role:director`.</Note>
+
+```http
+PUT /api/subjects/{subject}
+```
+
+**Path Parameters**
+
+<ParamField path="subject" type="integer" required>
+  The ID of the subject to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  Updated subject name.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/subjects/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "name": "Matemáticas Avanzadas" }'
+```
+
+---
+
+### Delete Subject
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/subjects/{subject}
+```
+
+**Path Parameters**
+
+<ParamField path="subject" type="integer" required>
+  The ID of the subject to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/subjects/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Materia eliminada" }
+```
+
+---
+
+### List Professors Teaching a Subject
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/subjects/{id}/profesores
+```
+
+Returns all professors within the tenant who have been assigned to teach the specified subject.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the subject.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/subjects/1/profesores \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "codigo_profesor": "PROF-001",
+      "especialidad": "Matemáticas",
+      "tenant_id": 1,
+      "user": {
+        "id": 2,
+        "name": "Carlos Mendoza",
+        "email": "cmendoza@school.edu"
+      }
+    }
+  ]
+}
+```
+
+<ResponseField name="data" type="array">
+  Array of professor objects.
+
+  <ResponseField name="data[].id" type="integer">
+    Internal ID of the professor record.
+  </ResponseField>
+
+  <ResponseField name="data[].codigo_profesor" type="string">
+    Unique teacher code within the tenant.
+  </ResponseField>
+
+  <ResponseField name="data[].especialidad" type="string">
+    Teacher's area of specialization.
+  </ResponseField>
+
+  <ResponseField name="data[].user" type="object">
+    Linked user account details (name and email).
+  </ResponseField>
+</ResponseField>

@@ -1,0 +1,167 @@
+{
+  "projectType": "api-service",
+  "projectName": "Cole",
+  "projectDescription": "A multi-tenant school management REST API built with Laravel, providing endpoints for academic periods, teacher/student management, attendance, grading, assignments, and parent-facing features across isolated school tenants.",
+  "theme": "luma",
+  "primaryColor": "#fc4539",
+  "lightColor": "#fca9a2",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "authentication"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/multi-tenancy",
+              "concepts/roles-permissions",
+              "concepts/modules"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/setup",
+              "guides/academic-structure",
+              "guides/grading",
+              "guides/attendance",
+              "guides/parent-portal"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Auth",
+            "pages": [
+              "api/auth"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "api/tenants",
+              "api/users",
+              "api/academic-periods"
+            ]
+          },
+          {
+            "group": "Academic Management",
+            "pages": [
+              "api/courses-sections",
+              "api/teachers",
+              "api/students",
+              "api/enrollments"
+            ]
+          },
+          {
+            "group": "Teaching",
+            "pages": [
+              "api/agenda",
+              "api/attendance",
+              "api/grades",
+              "api/anecdotario"
+            ]
+          },
+          {
+            "group": "Parent & Student Portal",
+            "pages": [
+              "api/parent-portal",
+              "api/student-portal"
+            ]
+          },
+          {
+            "group": "Circulares",
+            "pages": [
+              "api/circulares"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-tenant architecture with automatic tenant scoping via BelongsToTenant trait",
+    "Role-based access control (super-admin, director, profesor, estudiante, padre) using Spatie Laravel Permission",
+    "Per-tenant module system (agenda, asistencia, circulares, anecdotario, biblioteca, estudiantes) with activation/deactivation",
+    "Laravel Sanctum token-based authentication with token rotation on login",
+    "Academic period management with course/section (paralelo) hierarchy",
+    "Teacher assignment (asignacion docente) with weekly schedules",
+    "Weighted-criteria grading system with grade book (libro de calificaciones) and averages",
+    "Attendance tracking per class session with presence/absence/justified/late statuses",
+    "Academic agenda with file attachments and student task submissions",
+    "Parent portal for viewing children's grades, attendance, agenda, and anecdotal records",
+    "Student portal for pending tasks, library, subjects, and schedule",
+    "Circular (announcement) system with read-tracking and delivery statistics"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "POST /api/auth/register",
+    "POST /api/auth/logout",
+    "GET /api/auth/me",
+    "GET|POST|DELETE /api/tenants",
+    "GET|PUT /api/tenants/{id}",
+    "GET|PUT /api/my-tenant",
+    "POST /api/tenants/logo",
+    "GET|POST|DELETE /api/tenants/{tenantId}/modules",
+    "PATCH /api/tenants/{tenantId}/modules/{moduleId}/activate",
+    "PATCH /api/tenants/{tenantId}/modules/{moduleId}/deactivate",
+    "GET|POST|PUT|DELETE /api/periodos",
+    "PATCH /api/periodos/{id}/activar",
+    "GET /api/periodos/activo",
+    "GET|POST|PUT|DELETE /api/periodos/{periodo}/cursos",
+    "GET|POST|PUT|DELETE /api/paralelos",
+    "GET|POST|PUT|DELETE /api/profesores",
+    "POST /api/profesores/asignar-materia",
+    "POST /api/profesores/quitar-materia",
+    "GET /api/profesores/{id}/horario",
+    "GET|POST|PUT|DELETE /api/subjects",
+    "GET|POST|PUT|DELETE /api/estudiantes",
+    "GET /api/estudiante/pendientes",
+    "GET /api/estudiante/biblioteca",
+    "GET /api/estudiante/materias",
+    "GET /api/estudiante/horario",
+    "GET|POST|PUT|DELETE /api/periodos/{periodo}/inscripciones",
+    "GET /api/periodos/{periodo}/cursos/{curso}/paralelos/{paralelo}/estudiantes",
+    "GET|POST|DELETE /api/periodos/{periodo}/asignaciones",
+    "GET /api/periodos/{periodo}/asignaciones/mis-clases",
+    "POST /api/asignaciones/{id}/horarios",
+    "GET|POST|PUT|DELETE /api/padre-familias",
+    "POST /api/padre-familias/asignar-estudiante",
+    "GET /api/padre/mis-hijos",
+    "GET /api/padre/mis-hijos/agendas",
+    "GET /api/padre/mis-hijos/{estudianteId}/agendas",
+    "GET /api/padre/mis-hijos/{estudiante}/notas",
+    "GET /api/padre/mis-hijos/{estudiante}/anecdotarios",
+    "GET /api/padre/hijos/{estudiante}/asistencias",
+    "GET|POST|PUT|DELETE /api/periodos/{periodo}/asignaciones/{asignacion}/agenda",
+    "POST /api/agenda/{id}/subir-archivo",
+    "GET /api/agenda/{agenda}/entregas",
+    "GET|POST|PUT /api/periodos/{periodo}/asignaciones/{asignacion}/asistencia",
+    "GET /api/periodos/{periodo}/asignaciones/{asignacion}/asistencia/{fecha}",
+    "GET|POST|PUT|DELETE /api/criterios/asignacion/{asignacionId}",
+    "GET|POST /api/criterios/{criterio}/notas",
+    "GET /api/asignaciones/{asignacion}/periodos-evaluacion/{periodo}/libro-calificaciones",
+    "GET /api/periodos-evaluacion/{periodoId}/promedio",
+    "GET /api/estudiantes/{estudiante}/promedio-final",
+    "GET /api/estudiantes/{estudiante}/boletin",
+    "GET|POST|PUT|DELETE /api/anecdotarios",
+    "GET|POST|PUT|DELETE /api/circulares",
+    "POST /api/circulares/{id}/leer",
+    "GET /api/circulares/{id}/stats",
+    "GET|POST /api/estudiante/tareas/{agenda}/entrega",
+    "POST /api/estudiante/entregas/{entrega}/archivos",
+    "GET /api/entregas/{entrega}"
+  ]
+}

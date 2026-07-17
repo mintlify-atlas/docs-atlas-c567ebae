@@ -1,0 +1,248 @@
+---
+title: "Authentication API: Login, Register, and Token Management"
+sidebarTitle: "Auth"
+description: "Endpoints for user registration, login with token rotation, logout, and fetching the authenticated user's profile and roles."
+---
+
+Cole uses [Laravel Sanctum](https://laravel.com/docs/9.x/sanctum) for API token authentication. Every authenticated request must include an `Authorization: Bearer <token>` header. Tokens are plain-text strings returned on registration and login. Cole enforces **token rotation on login** — all existing tokens for the user are deleted before a new one is issued, ensuring only one active session per user at a time.
+
+---
+
+## POST /api/auth/register
+
+Creates a new user account, assigns the specified role, and returns an API token. This endpoint is unauthenticated and is primarily used when you need to manually provision a `super-admin` account. All other user types (directors, professors, students, parents) are created through their respective resource endpoints.
+
+<Note>
+  The `role` value must already exist in the `roles` table. Valid roles are `super-admin`, `director`, `profesor`, `estudiante`, and `padre`. Attempting to register with an unknown role name returns a 422 validation error.
+</Note>
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  Full display name of the user. Maximum 255 characters.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email address. Must be unique across all users. Used as the login credential.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Plain-text password. Minimum 6 characters. Stored as a bcrypt hash.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Role to assign to the new user. Must match an existing role name in the `roles` table. Example: `"super-admin"`.
+</ParamField>
+
+### Response `201 Created`
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation. Example: `"Usuario registrado correctamente"`.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The newly created user record.
+
+  <Expandable title="user fields">
+    <ResponseField name="id" type="integer">Unique user ID.</ResponseField>
+    <ResponseField name="name" type="string">Display name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="tenant_id" type="integer | null">The tenant this user belongs to. `null` for `super-admin` accounts.</ResponseField>
+    <ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+    <ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="roles" type="array of strings">
+  List of role names assigned to the user. Example: `["super-admin"]`.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  Plain-text Sanctum API token. Include this as `Authorization: Bearer <token>` on subsequent requests.
+</ResponseField>
+
+### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/auth/register \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "name": "Alice Romero",
+    "email": "alice@example.com",
+    "password": "secret123",
+    "role": "super-admin"
+  }'
+```
+
+```json
+{
+  "message": "Usuario registrado correctamente",
+  "user": {
+    "id": 1,
+    "name": "Alice Romero",
+    "email": "alice@example.com",
+    "tenant_id": null,
+    "created_at": "2026-04-01T18:00:00.000000Z",
+    "updated_at": "2026-04-01T18:00:00.000000Z"
+  },
+  "roles": ["super-admin"],
+  "token": "1|aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ"
+}
+```
+
+---
+
+## POST /api/auth/login
+
+Authenticates a user by email and password. **All existing tokens for the user are deleted** before a new token is issued — this means logging in invalidates any previous session tokens.
+
+<Warning>
+  Cole performs token rotation on every login. If you have a long-lived integration relying on a stored token, be aware that a subsequent login from any client will invalidate that token immediately.
+</Warning>
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  The registered email address of the user.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's password in plain text.
+</ParamField>
+
+### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Login exitoso"`.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The authenticated user record (same shape as registration response).
+</ResponseField>
+
+<ResponseField name="roles" type="array of strings">
+  All roles assigned to the user.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  Fresh plain-text API token. Use this for all subsequent authenticated requests.
+</ResponseField>
+
+### Error `422 Unprocessable Entity`
+
+Returned when credentials do not match any user.
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "email": ["Credenciales incorrectas"]
+  }
+}
+```
+
+### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/auth/login \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "email": "alice@example.com",
+    "password": "secret123"
+  }'
+```
+
+```json
+{
+  "message": "Login exitoso",
+  "user": {
+    "id": 1,
+    "name": "Alice Romero",
+    "email": "alice@example.com",
+    "tenant_id": null,
+    "created_at": "2026-04-01T18:00:00.000000Z",
+    "updated_at": "2026-04-01T18:00:00.000000Z"
+  },
+  "roles": ["super-admin"],
+  "token": "2|xY9zA8bB7cC6dD5eE4fF3gG2hH1iI0jJ9kK8lL"
+}
+```
+
+---
+
+## POST /api/auth/logout
+
+Revokes the **current access token** used in the request. Only the token included in the `Authorization` header is deleted — no other tokens belonging to the user are affected.
+
+**Authentication required:** `Authorization: Bearer <token>`
+
+### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Logout correcto"`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/auth/logout \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|xY9zA8bB7cC6dD5eE4fF3gG2hH1iI0jJ9kK8lL"
+```
+
+```json
+{
+  "message": "Logout correcto"
+}
+```
+
+---
+
+## GET /api/auth/me
+
+Returns the profile and roles of the currently authenticated user. Useful for bootstrapping a client session after login or verifying token validity.
+
+**Authentication required:** `Authorization: Bearer <token>`
+
+### Response `200 OK`
+
+<ResponseField name="user" type="object">
+  The authenticated user record.
+
+  <Expandable title="user fields">
+    <ResponseField name="id" type="integer">Unique user ID.</ResponseField>
+    <ResponseField name="name" type="string">Display name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="tenant_id" type="integer | null">The tenant this user belongs to. `null` for `super-admin` accounts.</ResponseField>
+    <ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+    <ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="roles" type="array of strings">
+  All roles currently assigned to the user.
+</ResponseField>
+
+### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/auth/me \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|xY9zA8bB7cC6dD5eE4fF3gG2hH1iI0jJ9kK8lL"
+```
+
+```json
+{
+  "user": {
+    "id": 5,
+    "name": "Carlos Mendoza",
+    "email": "carlos@lincoln.edu",
+    "tenant_id": 3,
+    "created_at": "2026-04-02T10:15:00.000000Z",
+    "updated_at": "2026-04-02T10:15:00.000000Z"
+  },
+  "roles": ["director"]
+}
+```

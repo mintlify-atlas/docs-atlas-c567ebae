@@ -1,0 +1,429 @@
+---
+title: "Enrollments API: Assign Students to Courses and Sections"
+sidebarTitle: "Enrollments"
+description: "Enroll students in courses and sections (inscripciones) within an academic period. Teachers can list enrolled students for their classes."
+---
+
+An **inscripción** (enrollment) is the record that places a student into a specific course and section within an academic period. Cole enforces a single enrollment per student per period — a student cannot be enrolled in two different courses simultaneously within the same period. The academic period must also be active (`activo = true`) before new enrollments can be created.
+
+Directors manage the full lifecycle of enrollments. Professors can query the roster of students enrolled in their specific class section.
+
+All requests require a valid `Bearer` token. Director endpoints require `role:director`; the teacher roster endpoint requires `role:profesor`.
+
+---
+
+## Inscripciones (Director)
+
+### List Enrollments
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/inscripciones
+```
+
+Returns all enrollment records for the given academic period, with the student's user account, course, section, and period loaded.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/inscripciones \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id": 1,
+    "estudiante_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 1,
+    "academic_period_id": 1,
+    "tenant_id": 1,
+    "estudiante": {
+      "id": 1,
+      "codigo_estudiante": "EST-001",
+      "user": {
+        "id": 5,
+        "name": "María García",
+        "email": "mgarcia@school.edu"
+      }
+    },
+    "curso": { "id": 1, "nombre": "Décimo", "nivel": "Básica Superior" },
+    "paralelo": { "id": 1, "nombre": "A", "turno": "Matutino" },
+    "periodo": { "id": 1, "nombre": "2026-2027" }
+  }
+]
+```
+
+---
+
+### Get Enrollment
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/inscripciones/{id}
+```
+
+Returns a single enrollment record with all relationships loaded.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the enrollment.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/inscripciones/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Create Enrollment
+
+<Note>Requires `role:director`. The academic period must be active.</Note>
+
+```http
+POST /api/periodos/{periodo}/inscripciones
+```
+
+Enrolls a student in a course and section within the specified academic period. The API validates:
+
+- The `paralelo_id` belongs to the given `curso_id`.
+- The student is not already enrolled in any course within this period (one enrollment per student per period).
+- The academic period is active.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="estudiante_id" type="integer" required>
+  ID of the student to enroll. Must belong to the authenticated tenant.
+</ParamField>
+
+<ParamField body="curso_id" type="integer" required>
+  ID of the course the student is being placed in. Must belong to the
+  tenant.
+</ParamField>
+
+<ParamField body="paralelo_id" type="integer" required>
+  ID of the section within the course. Must belong to both the tenant and
+  the given `curso_id`.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/periodos/1/inscripciones \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "estudiante_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 1
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "message": "Inscripción creada",
+  "data": {
+    "id": 1,
+    "estudiante_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 1,
+    "academic_period_id": 1,
+    "tenant_id": 1,
+    "estudiante": {
+      "id": 1,
+      "codigo_estudiante": "EST-001",
+      "user": {
+        "id": 5,
+        "name": "María García",
+        "email": "mgarcia@school.edu"
+      }
+    },
+    "curso": { "id": 1, "nombre": "Décimo", "nivel": "Básica Superior" },
+    "paralelo": { "id": 1, "nombre": "A", "turno": "Matutino" },
+    "periodo": { "id": 1, "nombre": "2026-2027" }
+  }
+}
+```
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The created enrollment with all relationships loaded.
+
+  <ResponseField name="data.id" type="integer">
+    Internal ID of the enrollment record.
+  </ResponseField>
+
+  <ResponseField name="data.estudiante_id" type="integer">
+    ID of the enrolled student.
+  </ResponseField>
+
+  <ResponseField name="data.curso_id" type="integer">
+    ID of the assigned course.
+  </ResponseField>
+
+  <ResponseField name="data.paralelo_id" type="integer">
+    ID of the assigned section.
+  </ResponseField>
+
+  <ResponseField name="data.academic_period_id" type="integer">
+    ID of the academic period this enrollment belongs to.
+  </ResponseField>
+
+  <ResponseField name="data.estudiante" type="object">
+    The student record with nested `user` (name and email).
+  </ResponseField>
+
+  <ResponseField name="data.curso" type="object">
+    The course record (`id`, `nombre`, `nivel`).
+  </ResponseField>
+
+  <ResponseField name="data.paralelo" type="object">
+    The section record (`id`, `nombre`, `turno`).
+  </ResponseField>
+
+  <ResponseField name="data.periodo" type="object">
+    The academic period record (`id`, `nombre`).
+  </ResponseField>
+</ResponseField>
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `403 Forbidden` | The academic period is inactive. |
+| `409 Conflict` | The student is already enrolled in this academic period. |
+| `422 Unprocessable Entity` | The `paralelo_id` does not belong to the given `curso_id`; or a referenced ID was not found within the tenant. |
+
+---
+
+### Update Enrollment
+
+<Note>Requires `role:director`.</Note>
+
+```http
+PUT /api/periodos/{periodo}/inscripciones/{id}
+```
+
+Updates an existing enrollment to change the student's assigned course or section. All fields are optional; only provided fields are updated. If both `curso_id` and `paralelo_id` are changed, the new paralelo must belong to the new curso. The uniqueness constraint (one enrollment per student per period) is also re-validated.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the enrollment to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="estudiante_id" type="integer">
+  Updated student ID. Must belong to the tenant. Cannot match another
+  enrollment for this period.
+</ParamField>
+
+<ParamField body="curso_id" type="integer">
+  Updated course ID. Must belong to the tenant.
+</ParamField>
+
+<ParamField body="paralelo_id" type="integer">
+  Updated section ID. Must belong to the tenant and to the effective
+  `curso_id`.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/periodos/1/inscripciones/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "paralelo_id": 2 }'
+```
+
+**Example Response** `200 OK`
+
+```json
+{
+  "message": "Inscripción actualizada",
+  "data": {
+    "id": 1,
+    "estudiante_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 2,
+    "academic_period_id": 1,
+    "tenant_id": 1,
+    "estudiante": {
+      "id": 1,
+      "codigo_estudiante": "EST-001",
+      "user": { "id": 5, "name": "María García", "email": "mgarcia@school.edu" }
+    },
+    "curso": { "id": 1, "nombre": "Décimo", "nivel": "Básica Superior" },
+    "paralelo": { "id": 2, "nombre": "B", "turno": "Matutino" },
+    "periodo": { "id": 1, "nombre": "2026-2027" }
+  }
+}
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `409 Conflict` | The updated `estudiante_id` is already enrolled in this period in a different enrollment record. |
+| `422 Unprocessable Entity` | The resolved `paralelo_id` does not belong to the resolved `curso_id`. |
+
+---
+
+### Delete Enrollment
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/periodos/{periodo}/inscripciones/{id}
+```
+
+Removes the enrollment record. This does not delete the student profile.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the enrollment to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/periodos/1/inscripciones/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Inscripción eliminada" }
+```
+
+---
+
+## Enrolled Students by Class (Professor)
+
+### List Students for a Class Section
+
+<Note>Requires `role:profesor`.</Note>
+
+```http
+GET /api/periodos/{periodo}/cursos/{curso}/paralelos/{paralelo}/estudiantes
+```
+
+Returns the list of students enrolled in a specific course section within a period. This endpoint is designed for teachers to access their class roster. Each entry contains the student's internal ID, full name, and email address.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="curso" type="integer" required>
+  The ID of the course.
+</ParamField>
+
+<ParamField path="paralelo" type="integer" required>
+  The ID of the section.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/cursos/1/paralelos/1/estudiantes \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "periodo_id": 1,
+  "curso_id": 1,
+  "paralelo_id": 1,
+  "estudiantes": [
+    {
+      "id": 1,
+      "nombre": "María García",
+      "email": "mgarcia@school.edu"
+    },
+    {
+      "id": 2,
+      "nombre": "José López",
+      "email": "jlopez@school.edu"
+    }
+  ]
+}
+```
+
+<ResponseField name="periodo_id" type="integer">
+  The academic period ID used in the query.
+</ResponseField>
+
+<ResponseField name="curso_id" type="integer">
+  The course ID used in the query.
+</ResponseField>
+
+<ResponseField name="paralelo_id" type="integer">
+  The section ID used in the query.
+</ResponseField>
+
+<ResponseField name="estudiantes" type="array">
+  Ordered list of enrolled students (sorted by inscription ID ascending).
+
+  <ResponseField name="estudiantes[].id" type="integer">
+    The student's internal ID.
+  </ResponseField>
+
+  <ResponseField name="estudiantes[].nombre" type="string">
+    Student's full name from the linked user account.
+  </ResponseField>
+
+  <ResponseField name="estudiantes[].email" type="string">
+    Student's email address.
+  </ResponseField>
+</ResponseField>

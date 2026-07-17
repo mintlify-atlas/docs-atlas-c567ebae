@@ -1,0 +1,934 @@
+---
+title: "Teachers API: Register and Assign Professors"
+sidebarTitle: "Teachers"
+description: "Create teacher profiles, assign subjects, manage teacher-to-class assignments (asignaciones), and view schedules."
+---
+
+Cole's teacher management spans two concerns: **professor profiles** (who a teacher is and which subjects they can teach) and **asignaciones docentes** (which specific class section, within a period, a teacher is actually scheduled to deliver). Creating an asignación automatically validates schedule conflicts for both the professor and the target section, ensuring no double-booking occurs.
+
+All requests must include a valid `Bearer` token. Routes marked `director` require the authenticated user to hold the `director` role.
+
+---
+
+## Profesores
+
+### List Professors
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/profesores
+```
+
+Returns all professor profiles for the authenticated user's tenant, with their linked user account and assigned subjects.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/profesores \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id": 1,
+    "codigo_profesor": "PROF-001",
+    "especialidad": "Matemáticas",
+    "tenant_id": 1,
+    "user": {
+      "id": 2,
+      "name": "Carlos Mendoza",
+      "email": "cmendoza@school.edu"
+    },
+    "subjects": [
+      { "id": 1, "name": "Matemáticas" },
+      { "id": 3, "name": "Física" }
+    ]
+  }
+]
+```
+
+---
+
+### Create Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/profesores
+```
+
+Creates a new user account, assigns it the `profesor` role, and creates the linked professor profile in one atomic operation.
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  Full name of the teacher, e.g. `"Carlos Mendoza"`.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Unique email address used for login. Must not already exist in the `users`
+  table.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Initial password. Minimum 6 characters. Stored as a bcrypt hash.
+</ParamField>
+
+<ParamField body="codigo_profesor" type="string" required>
+  Unique teacher code within the tenant, e.g. `"PROF-001"`. Scoped to
+  `tenant_id`, so the same code can exist across different schools.
+</ParamField>
+
+<ParamField body="especialidad" type="string">
+  Optional specialization label, e.g. `"Matemáticas"` or `"Ciencias"`.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/profesores \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "name": "Carlos Mendoza",
+    "email": "cmendoza@school.edu",
+    "password": "secret123",
+    "codigo_profesor": "PROF-001",
+    "especialidad": "Matemáticas"
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "message": "Profesor creado correctamente",
+  "data": {
+    "id": 1,
+    "codigo_profesor": "PROF-001",
+    "especialidad": "Matemáticas",
+    "tenant_id": 1,
+    "user": {
+      "id": 2,
+      "name": "Carlos Mendoza",
+      "email": "cmendoza@school.edu"
+    }
+  }
+}
+```
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created professor record.
+
+  <ResponseField name="data.id" type="integer">
+    Internal ID of the professor record.
+  </ResponseField>
+
+  <ResponseField name="data.codigo_profesor" type="string">
+    Unique teacher code within the tenant.
+  </ResponseField>
+
+  <ResponseField name="data.especialidad" type="string">
+    Teacher's area of specialization.
+  </ResponseField>
+
+  <ResponseField name="data.user" type="object">
+    Linked user account with `id`, `name`, and `email`.
+  </ResponseField>
+</ResponseField>
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `422 Unprocessable Entity` | Validation failed (e.g. duplicate email or `codigo_profesor`). |
+
+---
+
+### Get Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/profesores/{id}
+```
+
+Returns a professor with their user account and subjects.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the professor.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/profesores/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Update Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+PUT /api/profesores/{id}
+```
+
+Partially updates the professor's user account or profile. All fields are optional; only provided fields are updated.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the professor to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="name" type="string">
+  Updated full name.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Updated email. Must be unique in the `users` table, excluding the current
+  user's record.
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password. Minimum 6 characters. Leave blank to keep the existing
+  password.
+</ParamField>
+
+<ParamField body="codigo_profesor" type="string">
+  Updated teacher code. Must be unique within the tenant.
+</ParamField>
+
+<ParamField body="especialidad" type="string">
+  Updated specialization.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/profesores/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "especialidad": "Física y Matemáticas" }'
+```
+
+---
+
+### Delete Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/profesores/{id}
+```
+
+Deletes the professor record, removes all subject assignments (`profesor_subjects`), and deletes the linked user account.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the professor to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/profesores/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Profesor eliminado correctamente" }
+```
+
+---
+
+### Assign Subject to Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/profesores/asignar-materia
+```
+
+Creates a `profesor_subject` link so the teacher is eligible to be scheduled for that subject. Both the professor and subject must belong to the same tenant.
+
+**Request Body**
+
+<ParamField body="profesor_id" type="integer" required>
+  ID of the professor. Must exist within the authenticated tenant.
+</ParamField>
+
+<ParamField body="subject_id" type="integer" required>
+  ID of the subject to assign. Must exist within the same tenant.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/profesores/asignar-materia \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "profesor_id": 1, "subject_id": 1 }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "message": "Materia asignada correctamente",
+  "data": {
+    "id": 5,
+    "profesor_id": 1,
+    "subject_id": 1,
+    "tenant_id": 1
+  }
+}
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `403 Forbidden` | Professor and subject belong to different tenants. |
+| `409 Conflict` | Subject is already assigned to this professor. |
+| `422 Unprocessable Entity` | `profesor_id` or `subject_id` not found within the tenant. |
+
+---
+
+### Remove Subject from Professor
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/profesores/quitar-materia
+```
+
+Removes the `profesor_subject` link between a professor and a subject.
+
+**Request Body**
+
+<ParamField body="profesor_id" type="integer" required>
+  ID of the professor.
+</ParamField>
+
+<ParamField body="subject_id" type="integer" required>
+  ID of the subject to unassign.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/profesores/quitar-materia \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "profesor_id": 1, "subject_id": 1 }'
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Materia eliminada correctamente" }
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404 Not Found` | The professor–subject relationship does not exist. |
+
+---
+
+### List Professor's Subjects
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/profesores/{id}/subjects
+```
+
+Returns all subjects currently assigned to the given professor.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the professor.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/profesores/1/subjects \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "data": [
+    { "id": 1, "name": "Matemáticas" },
+    { "id": 3, "name": "Física" }
+  ]
+}
+```
+
+---
+
+### Get Professor Schedule
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/profesores/{id}/horario
+```
+
+Returns the professor's full weekly schedule, derived from their class assignments (`asignaciones`). Entries are grouped by day in calendar order (Lunes → Domingo) and sorted by `hora_inicio` within each day.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the professor.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/profesores/1/horario \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "profesor": {
+    "id": 1,
+    "nombre": "Carlos Mendoza",
+    "codigo": "PROF-001"
+  },
+  "horario": {
+    "Lunes": [
+      {
+        "id": 3,
+        "dia": "Lunes",
+        "hora_inicio": "07:00:00",
+        "hora_fin": "08:00:00",
+        "materia": "Matemáticas",
+        "curso": "Décimo",
+        "paralelo": "A"
+      }
+    ],
+    "Martes": [
+      {
+        "id": 4,
+        "dia": "Martes",
+        "hora_inicio": "09:00:00",
+        "hora_fin": "10:00:00",
+        "materia": "Física",
+        "curso": "Noveno",
+        "paralelo": "B"
+      }
+    ]
+  }
+}
+```
+
+<ResponseField name="profesor" type="object">
+  Identifying information for the professor.
+
+  <ResponseField name="profesor.id" type="integer">
+    Internal professor ID.
+  </ResponseField>
+
+  <ResponseField name="profesor.nombre" type="string">
+    Teacher's full name from the linked user account.
+  </ResponseField>
+
+  <ResponseField name="profesor.codigo" type="string">
+    Unique teacher code.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="horario" type="object">
+  Keys are day names in Spanish (`Lunes`, `Martes`, …`Domingo`). Each value
+  is an array of schedule slots sorted by `hora_inicio`.
+
+  <ResponseField name="horario[day][].id" type="integer">
+    The asignación docente ID.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].dia" type="string">
+    Day name in Spanish.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].hora_inicio" type="string">
+    Start time in `HH:MM:SS` format.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].hora_fin" type="string">
+    End time in `HH:MM:SS` format.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].materia" type="string">
+    Subject name.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].curso" type="string">
+    Course name.
+  </ResponseField>
+
+  <ResponseField name="horario[day][].paralelo" type="string">
+    Section label.
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Asignaciones Docentes
+
+An **asignación docente** ties a professor, a subject, a course, and a section together within an academic period. It also holds one or more **horario slots** (day + start/end times). The API prevents double-booking: the same section cannot have two subjects overlapping in time, and the same professor cannot be in two places at once within the same period.
+
+### List Asignaciones
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/asignaciones
+```
+
+Returns all class assignments for the period, optionally filtered by subject or professor.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Query Parameters**
+
+<ParamField query="subject_id" type="integer">
+  Filter assignments to a specific subject.
+</ParamField>
+
+<ParamField query="profesor_id" type="integer">
+  Filter assignments to a specific professor.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET "https://your-domain.com/api/periodos/1/asignaciones?subject_id=1" \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Create Asignación
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/periodos/{periodo}/asignaciones
+```
+
+Creates the assignment and persists all supplied schedule slots in one request. The API checks:
+
+- The `curso_id` belongs to the given period.
+- The professor has the `subject_id` assigned to them (`profesor_subjects` table).
+- The `paralelo_id` belongs to the `curso_id`.
+- No existing assignment already exists for that exact combination.
+- No time conflicts exist for the section or professor within the period.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="profesor_id" type="integer" required>
+  ID of the professor being assigned.
+</ParamField>
+
+<ParamField body="subject_id" type="integer" required>
+  ID of the subject being taught.
+</ParamField>
+
+<ParamField body="curso_id" type="integer" required>
+  ID of the course. Must belong to the given academic period.
+</ParamField>
+
+<ParamField body="paralelo_id" type="integer" required>
+  ID of the section. Must belong to the given `curso_id`.
+</ParamField>
+
+<ParamField body="horarios" type="array" required>
+  At least one schedule slot is required. Each element must contain `dia`,
+  `hora_inicio`, and `hora_fin`.
+
+  <ParamField body="horarios[].dia" type="string" required>
+    Day of the week in Spanish. Accepted values: `Lunes`, `Martes`,
+    `Miercoles`, `Jueves`, `Viernes`, `Sabado`, `Domingo`.
+  </ParamField>
+
+  <ParamField body="horarios[].hora_inicio" type="string" required>
+    Start time in `HH:MM` or `HH:MM:SS` format, e.g. `"07:00"`.
+  </ParamField>
+
+  <ParamField body="horarios[].hora_fin" type="string" required>
+    End time in `HH:MM` or `HH:MM:SS` format. Must be after `hora_inicio`.
+  </ParamField>
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/periodos/1/asignaciones \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "profesor_id": 1,
+    "subject_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 1,
+    "horarios": [
+      { "dia": "Lunes",   "hora_inicio": "07:00", "hora_fin": "08:00" },
+      { "dia": "Miercoles", "hora_inicio": "07:00", "hora_fin": "08:00" }
+    ]
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "message": "Asignación creada correctamente",
+  "data": {
+    "id": 3,
+    "profesor_id": 1,
+    "subject_id": 1,
+    "curso_id": 1,
+    "paralelo_id": 1,
+    "academic_period_id": 1,
+    "profesor": {
+      "id": 1,
+      "codigo_profesor": "PROF-001",
+      "user": { "id": 2, "name": "Carlos Mendoza" }
+    },
+    "subject": { "id": 1, "name": "Matemáticas" },
+    "curso": { "id": 1, "nombre": "Décimo" },
+    "paralelo": { "id": 1, "nombre": "A" },
+    "horarios": [
+      { "id": 1, "dia": "Lunes",     "hora_inicio": "07:00:00", "hora_fin": "08:00:00" },
+      { "id": 2, "dia": "Miercoles", "hora_inicio": "07:00:00", "hora_fin": "08:00:00" }
+    ]
+  }
+}
+```
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The created assignment with all nested relationships loaded.
+
+  <ResponseField name="data.id" type="integer">
+    Asignación docente ID.
+  </ResponseField>
+
+  <ResponseField name="data.horarios" type="array">
+    Array of schedule slots created for this assignment.
+
+    <ResponseField name="data.horarios[].dia" type="string">
+      Day of the week.
+    </ResponseField>
+
+    <ResponseField name="data.horarios[].hora_inicio" type="string">
+      Start time.
+    </ResponseField>
+
+    <ResponseField name="data.horarios[].hora_fin" type="string">
+      End time.
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `422 Unprocessable Entity` | Curso does not belong to the period; professor is not assigned to the subject; paralelo does not belong to the curso; schedule conflict for section or professor. |
+| `422 Unprocessable Entity` | Duplicate assignment already exists. |
+
+---
+
+### Get Asignación
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/asignaciones/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the asignación.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/asignaciones/3 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Delete Asignación
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/periodos/{periodo}/asignaciones/{id}
+```
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  The ID of the asignación to remove.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/periodos/1/asignaciones/3 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Asignación eliminada correctamente" }
+```
+
+---
+
+### View Own Classes (Professor)
+
+<Note>Requires `role:profesor`.</Note>
+
+```http
+GET /api/periodos/{periodo}/asignaciones/mis-clases
+```
+
+Returns all class assignments for the currently authenticated professor within the given period. The professor is resolved automatically from the authenticated user's linked `profesor` record.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/asignaciones/mis-clases \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "asignaciones": [
+    {
+      "id": 3,
+      "curso": "Décimo",
+      "paralelo": "A",
+      "materia": "Matemáticas",
+      "curso_id": 1,
+      "paralelo_id": 1,
+      "subject_id": 1
+    }
+  ]
+}
+```
+
+---
+
+### View Section Schedule
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/periodos/{periodo}/cursos/{curso}/paralelos/{paralelo}/horario
+```
+
+Returns the full weekly timetable for a specific course section within a period. Each slot includes the subject name and teacher name.
+
+**Path Parameters**
+
+<ParamField path="periodo" type="integer" required>
+  The ID of the academic period.
+</ParamField>
+
+<ParamField path="curso" type="integer" required>
+  The ID of the course.
+</ParamField>
+
+<ParamField path="paralelo" type="integer" required>
+  The ID of the section.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/periodos/1/cursos/1/paralelos/1/horario \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+{
+  "curso_id": 1,
+  "paralelo_id": 1,
+  "periodo_id": 1,
+  "horario": {
+    "Lunes": [
+      {
+        "id": 1,
+        "dia": "Lunes",
+        "hora_inicio": "07:00:00",
+        "hora_fin": "08:00:00",
+        "materia": "Matemáticas",
+        "profesor": "Carlos Mendoza"
+      }
+    ],
+    "Martes": [
+      {
+        "id": 5,
+        "dia": "Martes",
+        "hora_inicio": "08:00:00",
+        "hora_fin": "09:00:00",
+        "materia": "Ciencias Naturales",
+        "profesor": "Ana Torres"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Add Schedule Slot to Asignación
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/asignaciones/{id}/horarios
+```
+
+Adds a single schedule slot to an existing asignación. Performs the same conflict checks as the full assignment creation (no overlapping slots for the section or professor).
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the asignación docente.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="dia" type="string" required>
+  Day of the week. Accepted values: `Lunes`, `Martes`, `Miercoles`, `Jueves`,
+  `Viernes`, `Sabado`, `Domingo`.
+</ParamField>
+
+<ParamField body="hora_inicio" type="string" required>
+  Start time in `HH:MM` or `HH:MM:SS` format.
+</ParamField>
+
+<ParamField body="hora_fin" type="string" required>
+  End time. Must be after `hora_inicio`.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/asignaciones/3/horarios \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "dia": "Viernes",
+    "hora_inicio": "10:00",
+    "hora_fin": "11:00"
+  }'
+```
+
+**Example Response** `200 OK`
+
+```json
+{
+  "message": "Horario agregado correctamente",
+  "data": {
+    "id": 7,
+    "asignacion_docente_id": 3,
+    "dia": "Viernes",
+    "hora_inicio": "10:00:00",
+    "hora_fin": "11:00:00"
+  }
+}
+```
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `422 Unprocessable Entity` | Section already has a subject in that time slot. |
+| `422 Unprocessable Entity` | Professor already has a class in that time slot. |
+| `422 Unprocessable Entity` | Identical slot already exists on this assignment. |

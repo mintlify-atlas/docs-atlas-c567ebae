@@ -1,0 +1,451 @@
+---
+title: "Students API: Manage Student Profiles and Schedules"
+sidebarTitle: "Students"
+description: "Create and manage student records, access student schedules, pending tasks, library materials, and subject details through the student portal endpoints."
+---
+
+Cole separates student management into two groups of endpoints. **Director endpoints** allow school administrators to create, read, update, and delete student profiles. **Student portal endpoints** are accessible only by the authenticated student themselves, providing a self-service view of their schedule, enrolled subjects, pending agenda tasks, and library resources.
+
+All requests require a valid `Bearer` token. Director endpoints require the `role:director` middleware; student portal endpoints require both `role:estudiante` and the `module:estudiantes` middleware, which enforces that the student module is enabled for the tenant.
+
+---
+
+## Estudiantes (Director)
+
+### List Students
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/estudiantes
+```
+
+Returns all student profiles for the authenticated director's tenant, each with the linked user account included.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiantes \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id": 1,
+    "codigo_estudiante": "EST-001",
+    "tenant_id": 1,
+    "user": {
+      "id": 5,
+      "name": "María García",
+      "email": "mgarcia@school.edu"
+    }
+  }
+]
+```
+
+---
+
+### Create Student
+
+<Note>Requires `role:director`.</Note>
+
+```http
+POST /api/estudiantes
+```
+
+Creates a new user account, assigns it the `estudiante` role, and creates the linked student profile. The `codigo_estudiante` must be unique within the tenant.
+
+**Request Body**
+
+<ParamField body="name" type="string" required>
+  Full name of the student, e.g. `"María García"`.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Unique email address for the student's login account. Must not already exist
+  in the `users` table across any tenant.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Initial login password. Minimum 6 characters. Stored as a bcrypt hash.
+</ParamField>
+
+<ParamField body="codigo_estudiante" type="string" required>
+  Unique student code within the tenant, e.g. `"EST-001"`. The same code may
+  appear in different schools (tenants) but must be unique within a single
+  tenant.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X POST https://your-domain.com/api/estudiantes \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "name": "María García",
+    "email": "mgarcia@school.edu",
+    "password": "secret123",
+    "codigo_estudiante": "EST-001"
+  }'
+```
+
+**Example Response** `201 Created`
+
+```json
+{
+  "message": "Estudiante creado correctamente",
+  "data": {
+    "id": 1,
+    "codigo_estudiante": "EST-001",
+    "tenant_id": 1,
+    "user": {
+      "id": 5,
+      "name": "María García",
+      "email": "mgarcia@school.edu"
+    }
+  }
+}
+```
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created student record.
+
+  <ResponseField name="data.id" type="integer">
+    Internal ID of the student record.
+  </ResponseField>
+
+  <ResponseField name="data.codigo_estudiante" type="string">
+    Unique student code within the tenant.
+  </ResponseField>
+
+  <ResponseField name="data.tenant_id" type="integer">
+    ID of the school (tenant) this student belongs to.
+  </ResponseField>
+
+  <ResponseField name="data.user" type="object">
+    Linked user account containing `id`, `name`, and `email`.
+  </ResponseField>
+</ResponseField>
+
+**Error Responses**
+
+| Status | Condition |
+|--------|-----------|
+| `422 Unprocessable Entity` | Validation failed (e.g. duplicate email or `codigo_estudiante` within the tenant). |
+
+---
+
+### Get Student
+
+<Note>Requires `role:director`.</Note>
+
+```http
+GET /api/estudiantes/{id}
+```
+
+Returns a single student with the linked user account.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the student.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiantes/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Update Student
+
+<Note>Requires `role:director`.</Note>
+
+```http
+PUT /api/estudiantes/{id}
+```
+
+Partially updates the student's user account or profile. All fields are optional; only provided fields are changed.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the student to update.
+</ParamField>
+
+**Request Body**
+
+<ParamField body="name" type="string">
+  Updated full name.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Updated email. Must be unique in `users`, excluding the current user's own
+  record.
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password. Minimum 6 characters. Leave blank to retain the existing
+  password.
+</ParamField>
+
+<ParamField body="codigo_estudiante" type="string">
+  Updated student code. Must remain unique within the tenant.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X PUT https://your-domain.com/api/estudiantes/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{ "name": "María Elena García" }'
+```
+
+**Example Response** `200 OK`
+
+```json
+{
+  "message": "Estudiante actualizado correctamente",
+  "data": {
+    "id": 1,
+    "codigo_estudiante": "EST-001",
+    "tenant_id": 1,
+    "user": {
+      "id": 5,
+      "name": "María Elena García",
+      "email": "mgarcia@school.edu"
+    }
+  }
+}
+```
+
+---
+
+### Delete Student
+
+<Note>Requires `role:director`.</Note>
+
+```http
+DELETE /api/estudiantes/{id}
+```
+
+Deletes the student record and the linked user account. All role assignments are cleared from the user before deletion.
+
+**Path Parameters**
+
+<ParamField path="id" type="integer" required>
+  The ID of the student to delete.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://your-domain.com/api/estudiantes/1 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response** `200 OK`
+
+```json
+{ "message": "Estudiante eliminado correctamente" }
+```
+
+---
+
+## Student Portal
+
+The following endpoints are designed for students accessing their own data. The authenticated user must have the `estudiante` role and the tenant must have the `estudiantes` module enabled. The student record is resolved automatically from the authenticated user — no student ID is passed in the URL.
+
+### Get Pending Agenda Tasks
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/pendientes
+```
+
+Returns agenda items (tasks or activities) that are pending for the authenticated student — for example, homework assignments or pending submissions.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/pendientes \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Get Library Resources
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/biblioteca
+```
+
+Returns library or resource materials accessible to the authenticated student.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/biblioteca \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### List Enrolled Subjects
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/materias
+```
+
+Returns the subjects the student is enrolled in for the current period, derived from their active inscription and its linked class assignments.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/materias \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Get Subject Detail
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/materias/{asignacionId}
+```
+
+Returns detailed information for a specific class assignment (subject + profesor + section) that the student is enrolled in.
+
+**Path Parameters**
+
+<ParamField path="asignacionId" type="integer" required>
+  The ID of the asignación docente the student wants to inspect.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/materias/3 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Get Student Schedule
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/horario
+```
+
+Returns the authenticated student's full schedule, assembled from all class assignments linked to their active inscription. Each slot is returned as a flat object (not grouped by day) and times are formatted as `HH:MM`. Days are returned in lowercase Spanish.
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/horario \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "asignacion_id": 3,
+    "dia": "lunes",
+    "hora_inicio": "07:00",
+    "hora_fin": "08:00",
+    "materia": "Matemáticas",
+    "profesor": "Carlos Mendoza"
+  },
+  {
+    "asignacion_id": 4,
+    "dia": "martes",
+    "hora_inicio": "08:00",
+    "hora_fin": "09:00",
+    "materia": "Ciencias Naturales",
+    "profesor": "Ana Torres"
+  }
+]
+```
+
+<ResponseField name="[].asignacion_id" type="integer">
+  The ID of the asignación docente this slot belongs to.
+</ResponseField>
+
+<ResponseField name="[].dia" type="string">
+  Day name in lowercase Spanish, e.g. `"lunes"`, `"martes"`.
+</ResponseField>
+
+<ResponseField name="[].hora_inicio" type="string">
+  Start time trimmed to `HH:MM` format.
+</ResponseField>
+
+<ResponseField name="[].hora_fin" type="string">
+  End time trimmed to `HH:MM` format.
+</ResponseField>
+
+<ResponseField name="[].materia" type="string">
+  Name of the subject for this slot.
+</ResponseField>
+
+<ResponseField name="[].profesor" type="string">
+  Full name of the teacher delivering this class.
+</ResponseField>
+
+---
+
+### Get Task Detail
+
+<Note>Requires `role:estudiante` and `module:estudiantes`.</Note>
+
+```http
+GET /api/estudiante/tareas/{agenda}
+```
+
+Returns the detail of a specific agenda task, such as a homework assignment or project.
+
+**Path Parameters**
+
+<ParamField path="agenda" type="integer" required>
+  The ID of the agenda item (task) to retrieve.
+</ParamField>
+
+**Example Request**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/tareas/12 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```

@@ -1,0 +1,304 @@
+---
+title: "Anecdotario API: Student Behavioral Records"
+sidebarTitle: "Anecdotario"
+description: "Create and manage anecdotal records (observaciones) for students. Teachers create notes; parents can view their children's records."
+---
+
+The Anecdotario API enables teachers to maintain structured behavioral and academic observation records for individual students. Each record (an *anecdotario*) is classified by type — conduct, merit, or general observation — and is linked to the student, the creating teacher, the teacher's assignment, and the active academic period. Teachers can filter the list by student, period, or assignment. The index endpoint supports optional query parameters for targeted filtering without requiring a separate route per dimension.
+
+<Note>
+  All anecdotario management routes require a valid Sanctum bearer token and the `role:profesor` middleware. Parents can view their child's records through the parent portal at `GET /api/padre/mis-hijos/{estudiante}/anecdotarios` (documented separately in the Parent Portal reference).
+</Note>
+
+---
+
+## List Anecdotal Records
+
+Returns all anecdotal records in reverse-chronological order. Supports optional query parameters to filter results.
+
+```bash
+GET /api/anecdotarios
+```
+
+**Query parameters (all optional)**
+
+<ParamField query="estudiante_id" type="integer">
+  Filter records to a specific student.
+</ParamField>
+
+<ParamField query="academic_period_id" type="integer">
+  Filter records to a specific academic period.
+</ParamField>
+
+<ParamField query="asignacion_docente_id" type="integer">
+  Filter records to a specific teacher assignment.
+</ParamField>
+
+Each record in the response includes the full related `estudiante.user`, `profesor.user`, `asignacionDocente.subject`, and `academicPeriod` objects.
+
+**Example request**
+
+```bash
+curl -G https://your-tenant.coleapp.io/api/anecdotarios \
+  -H "Authorization: Bearer {token}" \
+  --data-urlencode "estudiante_id=101" \
+  --data-urlencode "academic_period_id=5"
+```
+
+**Example response** `200 OK`
+
+```json
+[
+  {
+    "id": 14,
+    "tenant_id": 3,
+    "estudiante_id": 101,
+    "profesor_id": 7,
+    "asignacion_docente_id": 18,
+    "academic_period_id": 5,
+    "tipo": "observacion",
+    "titulo": "Distracción reiterada en clase",
+    "descripcion": "El estudiante usó el teléfono durante la explicación en tres ocasiones consecutivas.",
+    "fecha": "2026-06-05",
+    "created_at": "2026-06-05T09:30:00.000000Z",
+    "updated_at": "2026-06-05T09:30:00.000000Z",
+    "estudiante": {
+      "id": 101,
+      "user": { "name": "Ana Torres" }
+    },
+    "profesor": {
+      "id": 7,
+      "user": { "name": "Carlos Mendoza" }
+    },
+    "asignacion_docente": {
+      "subject": { "name": "Matemáticas" }
+    },
+    "academic_period": {
+      "id": 5,
+      "nombre": "Año Lectivo 2026-2027"
+    }
+  }
+]
+```
+
+---
+
+## Create an Anecdotal Record
+
+Creates a new anecdotal record. The `profesor_id` is resolved automatically from the authenticated user's linked professor profile — it does not need to be supplied in the request body.
+
+```bash
+POST /api/anecdotarios
+```
+
+<ParamField body="estudiante_id" type="integer" required>
+  The student this record refers to. Must exist in the `estudiantes` table.
+</ParamField>
+
+<ParamField body="asignacion_docente_id" type="integer" required>
+  The teacher assignment in whose context this observation was made. Must exist in `asignaciones_docente`.
+</ParamField>
+
+<ParamField body="academic_period_id" type="integer" required>
+  The academic period to which this record belongs. Must exist in `academic_periods`.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Classification of the record. Accepted values:
+  - `conducta` — a conduct-related incident.
+  - `merito` — a positive merit or achievement.
+  - `observacion` — a general academic or behavioral observation.
+</ParamField>
+
+<ParamField body="titulo" type="string" required>
+  Short title or heading for the record (max 255 characters).
+</ParamField>
+
+<ParamField body="descripcion" type="string" required>
+  Full narrative description of the event or observation.
+</ParamField>
+
+<ParamField body="fecha" type="string (date)" required>
+  Date the event occurred, in `YYYY-MM-DD` format.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/anecdotarios \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "estudiante_id": 101,
+    "asignacion_docente_id": 18,
+    "academic_period_id": 5,
+    "tipo": "merito",
+    "titulo": "Participación destacada en olimpiada de matemáticas",
+    "descripcion": "Ana Torres obtuvo el primer lugar en la olimpiada institucional de matemáticas 2026, representando al paralelo A.",
+    "fecha": "2026-06-12"
+  }'
+```
+
+**Example response** `201 Created`
+
+```json
+{
+  "message": "Anecdotario creado exitosamente",
+  "data": {
+    "id": 15,
+    "tenant_id": 3,
+    "estudiante_id": 101,
+    "profesor_id": 7,
+    "asignacion_docente_id": 18,
+    "academic_period_id": 5,
+    "tipo": "merito",
+    "titulo": "Participación destacada en olimpiada de matemáticas",
+    "descripcion": "Ana Torres obtuvo el primer lugar en la olimpiada institucional de matemáticas 2026, representando al paralelo A.",
+    "fecha": "2026-06-12",
+    "created_at": "2026-06-12T11:00:00.000000Z",
+    "updated_at": "2026-06-12T11:00:00.000000Z",
+    "estudiante": {
+      "id": 101,
+      "user": { "name": "Ana Torres" }
+    },
+    "profesor": {
+      "id": 7,
+      "user": { "name": "Carlos Mendoza" }
+    },
+    "asignacion_docente": {
+      "subject": { "name": "Matemáticas" }
+    },
+    "academic_period": {
+      "id": 5,
+      "nombre": "Año Lectivo 2026-2027"
+    }
+  }
+}
+```
+
+---
+
+## Get a Single Anecdotal Record
+
+Returns a specific anecdotario with all related data eagerly loaded.
+
+```bash
+GET /api/anecdotarios/{anecdotario}
+```
+
+<ParamField path="anecdotario" type="integer" required>
+  The anecdotario ID.
+</ParamField>
+
+Response shape is identical to a single entry in the list endpoint, including the nested `estudiante.user`, `profesor.user`, `asignacionDocente.subject`, and `academicPeriod` relationships.
+
+---
+
+## Update an Anecdotal Record
+
+Replaces the editable fields of an existing record. The `profesor_id` cannot be changed through this endpoint.
+
+```bash
+PUT /api/anecdotarios/{anecdotario}
+```
+
+<ParamField path="anecdotario" type="integer" required>
+  The anecdotario ID to update.
+</ParamField>
+
+<ParamField body="estudiante_id" type="integer" required>
+  Updated student reference. Must exist in `estudiantes`.
+</ParamField>
+
+<ParamField body="asignacion_docente_id" type="integer" required>
+  Updated assignment reference. Must exist in `asignaciones_docente`.
+</ParamField>
+
+<ParamField body="academic_period_id" type="integer" required>
+  Updated academic period reference. Must exist in `academic_periods`.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Updated type: `conducta`, `merito`, or `observacion`.
+</ParamField>
+
+<ParamField body="titulo" type="string" required>
+  Updated title (max 255 characters).
+</ParamField>
+
+<ParamField body="descripcion" type="string" required>
+  Updated full description.
+</ParamField>
+
+<ParamField body="fecha" type="string (date)" required>
+  Updated date in `YYYY-MM-DD` format.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Anecdotario actualizado",
+  "data": {
+    "id": 15,
+    "tipo": "merito",
+    "titulo": "Participación destacada en olimpiada de matemáticas (actualizado)",
+    "descripcion": "Ana Torres obtuvo el primer lugar en la olimpiada institucional de matemáticas 2026.",
+    "fecha": "2026-06-12",
+    "updated_at": "2026-06-13T08:00:00.000000Z"
+  }
+}
+```
+
+---
+
+## Delete an Anecdotal Record
+
+Permanently deletes an anecdotario. This action is irreversible.
+
+```bash
+DELETE /api/anecdotarios/{anecdotario}
+```
+
+<ParamField path="anecdotario" type="integer" required>
+  The anecdotario ID to delete.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Anecdotario eliminado exitosamente" }
+```
+
+---
+
+## Record Fields Reference
+
+The following table describes every field stored in the `anecdotarios` table as defined in the database migration.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | — | Auto-incremented primary key. |
+| `tenant_id` | integer | yes | Multi-tenant scope. Automatically set from the authenticated user. |
+| `estudiante_id` | integer | yes | Foreign key to `estudiantes`. |
+| `profesor_id` | integer | yes | Foreign key to `profesores`. Set automatically from the authenticated user. |
+| `asignacion_docente_id` | integer | yes | Foreign key to `asignaciones_docente`. |
+| `academic_period_id` | integer | yes | Foreign key to `academic_periods`. |
+| `tipo` | enum | yes | `conducta`, `merito`, or `observacion`. |
+| `titulo` | string | yes | Short title (max 255 characters). |
+| `descripcion` | text | yes | Full narrative description. |
+| `fecha` | date | yes | Date the event occurred (`YYYY-MM-DD`). |
+| `created_at` | timestamp | — | Auto-managed by Laravel. |
+| `updated_at` | timestamp | — | Auto-managed by Laravel. |
+
+---
+
+## Parent Portal Access
+
+Parents can read their child's anecdotal records through the parent portal. This route is read-only and is covered in the **Parent Portal** reference section.
+
+```bash
+GET /api/padre/mis-hijos/{estudiante}/anecdotarios
+```
+
+This endpoint requires `role:padre` and is scoped so a parent can only access records for students linked to their own account.

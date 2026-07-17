@@ -1,0 +1,513 @@
+---
+title: "Student Portal API: Schedule, Tasks, and Subjects"
+sidebarTitle: "Student Portal"
+description: "Endpoints for authenticated students to view their schedule, pending assignments, enrolled subjects, and submit homework through the student portal."
+---
+
+The Student Portal API gives authenticated students a read-and-submit interface into their academic life: pending tasks and exams, a browsable library of teacher-uploaded resources, subject listings with class schedules, and a full assignment submission system with file attachments. Every student portal endpoint resolves the student record from the token's authenticated user, so no student ID is needed in the URL for personal data requests.
+
+All student-facing endpoints require a valid Sanctum bearer token for a user holding the **`estudiante`** role.
+
+---
+
+## Module Requirement
+
+<Note>
+  All endpoints under `/api/estudiante/*` — except the task submission group — require the **`estudiantes`** module to be active for the tenant. If the module is disabled, the middleware will block the request before it reaches the controller. The task submission endpoints (`/entrega`, `/archivos`, `/entrega-archivos`) only require the `estudiante` role and do not check the module flag.
+</Note>
+
+---
+
+## Pending Tasks and Exams
+
+### List Pending Agenda Items
+
+<Note>**`GET`** `/api/estudiante/pendientes`</Note>
+
+Returns all agenda entries of type `tarea` (homework) or `examen` (exam) that belong to courses the authenticated student is enrolled in. Results are ordered by `fecha_entrega` ascending so the most urgent items appear first. Supports optional query filters for type and subject assignment.
+
+<ParamField query="tipo" type="string">
+  Filter by agenda type. Accepted values: `tarea`, `examen`.
+</ParamField>
+
+<ParamField query="asignacion_id" type="integer">
+  Filter by a specific teacher-subject assignment ID (`asignacion_docente_id`).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET "https://your-domain.com/api/estudiante/pendientes?tipo=tarea" \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "id": 12,
+    "titulo": "Tarea de Matemáticas — Capítulo 4",
+    "descripcion": "Resolver los ejercicios del 1 al 20.",
+    "tipo": "tarea",
+    "fecha_entrega": "2026-05-10",
+    "materia": "Matemáticas",
+    "profesor": "Prof. Jorge Méndez",
+    "archivos": [
+      {
+        "id": 5,
+        "nombre_original": "instrucciones.pdf",
+        "url": "/storage/agendas/instrucciones.pdf"
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "titulo": "Examen parcial de Lengua",
+    "descripcion": "Temas: ortografía y morfología.",
+    "tipo": "examen",
+    "fecha_entrega": "2026-05-14",
+    "materia": "Lengua y Literatura",
+    "profesor": "Prof. Carmen Vega",
+    "archivos": []
+  }
+]
+```
+
+<ResponseField name="[].id" type="integer">
+  Agenda item ID.
+</ResponseField>
+<ResponseField name="[].titulo" type="string">
+  Title of the task or exam.
+</ResponseField>
+<ResponseField name="[].descripcion" type="string">
+  Detailed description or instructions.
+</ResponseField>
+<ResponseField name="[].tipo" type="string">
+  `tarea` or `examen`.
+</ResponseField>
+<ResponseField name="[].fecha_entrega" type="string">
+  Due date in `YYYY-MM-DD` format.
+</ResponseField>
+<ResponseField name="[].materia" type="string">
+  Name of the subject this task belongs to.
+</ResponseField>
+<ResponseField name="[].profesor" type="string">
+  Full name of the teacher who created the task.
+</ResponseField>
+<ResponseField name="[].archivos" type="array">
+  Files attached to this agenda item by the teacher.
+
+  <ResponseField name="[].archivos[].id" type="integer">
+    File record ID.
+  </ResponseField>
+  <ResponseField name="[].archivos[].nombre_original" type="string">
+    Original filename as uploaded.
+  </ResponseField>
+  <ResponseField name="[].archivos[].url" type="string">
+    Public URL to download the file.
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Library / Resource Files
+
+### Browse the Library
+
+<Note>**`GET`** `/api/estudiante/biblioteca`</Note>
+
+Returns all agenda entries of type `recurso` (resource/material) for the enrolled courses. This is the student's read-only library of teacher-uploaded study materials. Results are ordered by creation date descending. Supports optional filtering by subject assignment.
+
+<ParamField query="asignacion_id" type="integer">
+  Filter resources to a specific teacher-subject assignment.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/biblioteca \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "id": 9,
+    "titulo": "Guía de estudio — Fracciones",
+    "descripcion": "Material complementario para el tema de fracciones.",
+    "materia": "Matemáticas",
+    "profesor": "Prof. Jorge Méndez",
+    "created_at": "2026-04-22T14:30:00.000000Z",
+    "archivos": [
+      {
+        "id": 11,
+        "nombre_original": "fracciones_guia.pdf",
+        "url": "/storage/agendas/fracciones_guia.pdf"
+      }
+    ]
+  }
+]
+```
+
+---
+
+## Enrolled Subjects
+
+### List All Enrolled Subjects
+
+<Note>**`GET`** `/api/estudiante/materias`</Note>
+
+Returns a summary list of every subject-teacher assignment (`AsignacionDocente`) the authenticated student is enrolled in. Each entry exposes the internal `asignacion_id`, which is used as a path parameter in the subject detail and filter endpoints.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/materias \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "asignacion_id": 4,
+    "materia": "Matemáticas",
+    "profesor": "Prof. Jorge Méndez"
+  },
+  {
+    "asignacion_id": 7,
+    "materia": "Lengua y Literatura",
+    "profesor": "Prof. Carmen Vega"
+  }
+]
+```
+
+---
+
+### Get Subject Detail
+
+<Note>**`GET`** `/api/estudiante/materias/{asignacionId}`</Note>
+
+Returns full detail for a single subject assignment, including the weekly class schedule (all time slots for that subject). Returns `404` if the assignment does not exist or the student is not enrolled in it.
+
+<ParamField path="asignacionId" type="integer" required>
+  The `asignacion_id` of the subject to retrieve (obtained from the list endpoint above).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/materias/4 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "asignacion_id": 4,
+  "materia": "Matemáticas",
+  "profesor": "Prof. Jorge Méndez",
+  "horarios": [
+    { "dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:00" },
+    { "dia": "miércoles", "hora_inicio": "10:00", "hora_fin": "11:00" }
+  ]
+}
+```
+
+---
+
+## Weekly Schedule
+
+### Get Class Schedule
+
+<Note>**`GET`** `/api/estudiante/horario`</Note>
+
+Returns the full weekly timetable for the authenticated student as a flat array of schedule slots. Each slot represents a single time block for one subject on one day of the week. The response can be used directly to render a calendar or weekly grid view.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/horario \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "asignacion_id": 4,
+    "dia": "lunes",
+    "hora_inicio": "08:00",
+    "hora_fin": "09:00",
+    "materia": "Matemáticas",
+    "profesor": "Prof. Jorge Méndez"
+  },
+  {
+    "asignacion_id": 7,
+    "dia": "martes",
+    "hora_inicio": "09:00",
+    "hora_fin": "10:00",
+    "materia": "Lengua y Literatura",
+    "profesor": "Prof. Carmen Vega"
+  },
+  {
+    "asignacion_id": 4,
+    "dia": "miércoles",
+    "hora_inicio": "08:00",
+    "hora_fin": "09:00",
+    "materia": "Matemáticas",
+    "profesor": "Prof. Jorge Méndez"
+  }
+]
+```
+
+<ResponseField name="[].asignacion_id" type="integer">
+  The teacher-subject assignment this slot belongs to.
+</ResponseField>
+<ResponseField name="[].dia" type="string">
+  Day of the week in lowercase Spanish, e.g. `lunes`, `martes`, `miércoles`, `jueves`, `viernes`.
+</ResponseField>
+<ResponseField name="[].hora_inicio" type="string">
+  Start time in `HH:MM` format (24-hour), e.g. `08:00`.
+</ResponseField>
+<ResponseField name="[].hora_fin" type="string">
+  End time in `HH:MM` format (24-hour), e.g. `09:00`.
+</ResponseField>
+<ResponseField name="[].materia" type="string">
+  Name of the subject taught in this time slot.
+</ResponseField>
+<ResponseField name="[].profesor" type="string">
+  Full name of the teacher for this subject.
+</ResponseField>
+
+---
+
+## Task Detail
+
+### Get Task / Assignment Detail
+
+<Note>**`GET`** `/api/estudiante/tareas/{agenda}`</Note>
+
+Returns full detail for a single agenda item — title, description, type, due date, subject, teacher, and all attached files. The student must be enrolled in the course the task belongs to, otherwise `404` is returned.
+
+<ParamField path="agenda" type="integer" required>
+  The ID of the agenda item (task or exam).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/tareas/12 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "id": 12,
+  "titulo": "Tarea de Matemáticas — Capítulo 4",
+  "descripcion": "Resolver los ejercicios del 1 al 20.",
+  "tipo": "tarea",
+  "fecha_entrega": "2026-05-10",
+  "materia": "Matemáticas",
+  "profesor": "Prof. Jorge Méndez",
+  "archivos": [
+    {
+      "id": 5,
+      "nombre_original": "instrucciones.pdf",
+      "url": "/storage/agendas/instrucciones.pdf"
+    }
+  ]
+}
+```
+
+---
+
+## Assignment Submission
+
+<Note>
+  The submission endpoints below only require the **`role:estudiante`** middleware. The `module:estudiantes` check does **not** apply to these routes, so students can submit work even if the module flag changes during an active assignment period.
+</Note>
+
+### Submit an Assignment
+
+<Note>**`POST`** `/api/estudiante/tareas/{agenda}/entrega`</Note>
+
+Creates a submission record for a given task or exam. Only tasks with `tipo` equal to `tarea` or `examen` accept submissions — passing a `recurso` agenda ID will return `400 Bad Request`. If the student has already submitted, this endpoint is idempotent and returns the existing submission ID without creating a duplicate.
+
+<ParamField path="agenda" type="integer" required>
+  The ID of the agenda item being submitted.
+</ParamField>
+
+<ParamField body="comentario" type="string">
+  An optional note or message from the student to accompany the submission.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/estudiante/tareas/12/entrega \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"comentario": "Adjunto la solución completa."}'
+```
+
+**Sample response** `200 OK`
+
+```json
+{
+  "message": "Entrega creada correctamente.",
+  "id": 34
+}
+```
+
+---
+
+### View Own Submission
+
+<Note>**`GET`** `/api/estudiante/tareas/{agenda}/entrega`</Note>
+
+Returns the authenticated student's existing submission for the given agenda item, including any uploaded files. Returns `null` (HTTP 200 with body `null`) if no submission has been created yet.
+
+<ParamField path="agenda" type="integer" required>
+  The ID of the agenda item.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/estudiante/tareas/12/entrega \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "id": 34,
+  "comentario": "Adjunto la solución completa.",
+  "fecha_entrega": "2026-05-09T22:14:00.000000Z",
+  "estado": "entregado",
+  "archivos": [
+    {
+      "id": 20,
+      "nombre_original": "tarea_cap4.pdf",
+      "url": "/storage/entregas/tarea_cap4.pdf"
+    }
+  ]
+}
+```
+
+<ResponseField name="id" type="integer">
+  Submission record ID. Use this as `entrega` in the file upload endpoint.
+</ResponseField>
+<ResponseField name="comentario" type="string">
+  Student's note submitted alongside the files.
+</ResponseField>
+<ResponseField name="fecha_entrega" type="string">
+  ISO 8601 timestamp of when the submission was first created.
+</ResponseField>
+<ResponseField name="estado" type="string">
+  Current submission state. Set to `entregado` on creation.
+</ResponseField>
+<ResponseField name="archivos" type="array">
+  Files attached to this submission.
+
+  <ResponseField name="archivos[].id" type="integer">
+    File record ID. Use this as `archivo` in the delete endpoint.
+  </ResponseField>
+  <ResponseField name="archivos[].nombre_original" type="string">
+    Original filename as uploaded by the student.
+  </ResponseField>
+  <ResponseField name="archivos[].url" type="string">
+    Public URL to download the file.
+  </ResponseField>
+</ResponseField>
+
+---
+
+### Upload Files to a Submission
+
+<Note>**`POST`** `/api/estudiante/entregas/{entrega}/archivos`</Note>
+
+Attaches one or more files to an existing submission. Files are sent as `multipart/form-data`. Each file may be up to **10 MB**. Files are stored in the `public/entregas` disk path and served at the URL returned in the response.
+
+<ParamField path="entrega" type="integer" required>
+  The submission ID returned by `POST /api/estudiante/tareas/{agenda}/entrega`.
+</ParamField>
+
+<ParamField body="archivos" type="array of files" required>
+  One or more files to attach. Send each file under the key `archivos[]`. Maximum size per file: 10 MB (10 240 KB).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/estudiante/entregas/34/archivos \
+  -H "Authorization: Bearer {token}" \
+  -F "archivos[]=@/path/to/tarea_cap4.pdf" \
+  -F "archivos[]=@/path/to/diagrama.png"
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Archivos subidos correctamente.",
+  "archivos": [
+    {
+      "id": 20,
+      "nombre_original": "tarea_cap4.pdf",
+      "url": "/storage/entregas/tarea_cap4.pdf"
+    },
+    {
+      "id": 21,
+      "nombre_original": "diagrama.png",
+      "url": "/storage/entregas/diagrama.png"
+    }
+  ]
+}
+```
+
+---
+
+### Delete a Submission File
+
+<Note>**`DELETE`** `/api/estudiante/entrega-archivos/{archivo}`</Note>
+
+Removes a single file from a submission. The physical file is deleted from the storage disk and the database record is removed. This action is irreversible.
+
+<ParamField path="archivo" type="integer" required>
+  The ID of the file record to delete (obtained from the submission detail or file upload responses).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X DELETE https://your-domain.com/api/estudiante/entrega-archivos/20 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Archivo eliminado."
+}
+```

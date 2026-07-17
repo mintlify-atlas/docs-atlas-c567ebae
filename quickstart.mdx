@@ -1,47 +1,215 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get started with Cole in 5 steps"
+sidebarTitle: "Quickstart"
+description: "Install Cole, run migrations, seed roles and modules, then register a super-admin and make your first authenticated API call."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+Cole is a standard Laravel 9 application. If you have PHP 8.0+, Composer, and a MySQL database available, you can have a fully working API running locally in under five minutes. The steps below walk from a fresh clone to a verified, authenticated request against the running server.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Clone the repository and install dependencies">
+    Clone Cole from GitHub, then use Composer to install all PHP dependencies. Afterward, copy the example environment file and generate your application key.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/iamalexis689725/cole.git
+    cd cole
+    composer install
+    cp .env.example .env
+    php artisan key:generate
     ```
+
+    <Note>
+      `composer install` will pull in Laravel 9, Sanctum, Spatie Permission, and Guzzle. Ensure your PHP version is **8.0.2 or higher** before running the command.
+    </Note>
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Configure your .env file">
+    Open `.env` in your editor and update the database connection block and `APP_URL` to match your local environment. The most important values are shown below.
+
+    ```ini
+    APP_NAME=Cole
+    APP_ENV=local
+    APP_KEY=           # filled automatically by key:generate
+    APP_DEBUG=true
+    APP_URL=http://localhost:8000
+
+    DB_CONNECTION=mysql
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=cole
+    DB_USERNAME=root
+    DB_PASSWORD=secret
+    ```
+
+    <Tip>
+      Create the `cole` database in MySQL before running migrations: `CREATE DATABASE cole CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+    </Tip>
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply all migrations to create the Cole schema, including the users table, Sanctum personal access tokens table, and Spatie Permission tables.
 
     ```bash
-    your-cli init
+    php artisan migrate
+    ```
+
+    A successful run ends with output similar to:
+
+    ```
+    INFO  Running migrations.
+
+      2014_10_12_000000_create_users_table .................. 12ms DONE
+      2019_08_19_000000_create_failed_jobs_table ............ 8ms  DONE
+      2019_12_14_000001_create_personal_access_tokens_table . 9ms  DONE
+      ...
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Seed roles and modules">
+    Cole ships with two seeders that must be run before any users can be registered. `RoleSeeder` creates the five built-in roles; `ModuleSeeder` creates the available school modules.
+
+    Run them individually:
 
     ```bash
-    your-cli start
+    php artisan db:seed --class=RoleSeeder
+    php artisan db:seed --class=ModuleSeeder
     ```
+
+    Or run both at once using the root `DatabaseSeeder`, which calls them in the correct order:
+
+    ```bash
+    php artisan db:seed
+    ```
+
+    After seeding, the `roles` table will contain exactly these five records:
+
+    | `name` |
+    |---|
+    | `super-admin` |
+    | `director` |
+    | `profesor` |
+    | `estudiante` |
+    | `padre` |
+
+    <Warning>
+      Attempting to register a user before seeding roles will return a **422 Unprocessable Content** error because `role` is validated against the `roles` table via the `exists:roles,name` rule.
+    </Warning>
   </Step>
+
+  <Step title="Register a super-admin and make your first request">
+    Start the development server, register a `super-admin` user, and use the returned token to call `GET /api/auth/me`.
+
+    **Start the server:**
+
+    ```bash
+    php artisan serve
+    # Listening on http://127.0.0.1:8000
+    ```
+
+    **Register a super-admin:**
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -s -X POST http://127.0.0.1:8000/api/auth/register \
+      -H "Accept: application/json" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Alex Admin",
+        "email": "alex@example.com",
+        "password": "secret123",
+        "role": "super-admin"
+      }'
+    ```
+
+    ```php PHP (Guzzle)
+    <?php
+
+    require 'vendor/autoload.php';
+
+    use GuzzleHttp\Client;
+
+    $client = new Client(['base_uri' => 'http://127.0.0.1:8000']);
+
+    $response = $client->post('/api/auth/register', [
+        'json' => [
+            'name'     => 'Alex Admin',
+            'email'    => 'alex@example.com',
+            'password' => 'secret123',
+            'role'     => 'super-admin',
+        ],
+        'headers' => [
+            'Accept' => 'application/json',
+        ],
+    ]);
+
+    $body = json_decode((string) $response->getBody(), true);
+    $token = $body['token'];
+
+    echo "Token: {$token}\n";
+    ```
+
+    </CodeGroup>
+
+    The response includes your Bearer token:
+
+    ```json
+    {
+      "message": "Usuario registrado correctamente",
+      "user": {
+        "id": 1,
+        "name": "Alex Admin",
+        "email": "alex@example.com",
+        "created_at": "2024-01-15T10:00:00.000000Z",
+        "updated_at": "2024-01-15T10:00:00.000000Z"
+      },
+      "roles": ["super-admin"],
+      "token": "1|aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+    }
+    ```
+
+    **Make your first authenticated request:**
+
+    <CodeGroup>
+
+    ```bash cURL
+    curl -s http://127.0.0.1:8000/api/auth/me \
+      -H "Accept: application/json" \
+      -H "Authorization: Bearer 1|aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+    ```
+
+    ```php PHP (Guzzle)
+    <?php
+
+    // $token from the previous register/login call
+    $response = $client->get('/api/auth/me', [
+        'headers' => [
+            'Accept'        => 'application/json',
+            'Authorization' => "Bearer {$token}",
+        ],
+    ]);
+
+    $me = json_decode((string) $response->getBody(), true);
+    print_r($me);
+    ```
+
+    </CodeGroup>
+
+    ```json
+    {
+      "user": {
+        "id": 1,
+        "name": "Alex Admin",
+        "email": "alex@example.com",
+        "created_at": "2024-01-15T10:00:00.000000Z",
+        "updated_at": "2024-01-15T10:00:00.000000Z"
+      },
+      "roles": ["super-admin"]
+    }
+    ```
+
+    A `200 OK` response confirms that your token is valid and the API is working correctly. You're ready to explore the rest of the Cole endpoints.
+  </Step>
+
 </Steps>
-
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>

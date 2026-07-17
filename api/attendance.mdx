@@ -1,0 +1,277 @@
+---
+title: "Attendance API: Record and Retrieve Class Attendance"
+sidebarTitle: "Attendance"
+description: "Record per-student attendance for class sessions, view attendance by date, update records, and list all attendance sessions for an assignment."
+---
+
+The Attendance API lets teachers record, view, and correct attendance for each class session within a given teacher assignment and academic period. Attendance is modeled as a header record (`Asistencia`) with a child detail record (`AsistenciaDetalle`) per student. Each header is uniquely identified by its assignment and date, so the system prevents accidental duplicate entries and returns `409 Conflict` if attendance for a given date already exists.
+
+<Note>
+  All attendance routes require a valid Sanctum bearer token, the `role:profesor` middleware, and the **`module:asistencia`** feature module to be active for the tenant.
+</Note>
+
+---
+
+## Record Attendance
+
+Creates a new attendance session for the given assignment and date. The request must include one entry per enrolled student.
+
+```bash
+POST /api/periodos/{periodo}/asignaciones/{asignacion}/asistencia
+```
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment (`asignacion_docente`) ID, which must belong to the given period.
+</ParamField>
+
+<ParamField body="fecha" type="string (date)" required>
+  The session date in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="asistencias" type="array" required>
+  Array of per-student attendance records. Must contain at least one item.
+
+  <Expandable title="asistencias[]">
+    <ParamField body="estudiante_id" type="integer" required>
+      ID of the student. Must exist in the `estudiantes` table.
+    </ParamField>
+    <ParamField body="estado" type="string" required>
+      Attendance status for this student. Accepted values: `presente`, `falta`, `justificado`, `tarde`.
+    </ParamField>
+    <ParamField body="observacion" type="string">
+      Optional note about this student's attendance for the session. Nullable.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/periodos/5/asignaciones/18/asistencia \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fecha": "2026-06-10",
+    "asistencias": [
+      { "estudiante_id": 101, "estado": "presente" },
+      { "estudiante_id": 102, "estado": "falta", "observacion": "No avisó" },
+      { "estudiante_id": 103, "estado": "tarde",  "observacion": "Llegó 10 min tarde" },
+      { "estudiante_id": 104, "estado": "justificado", "observacion": "Cita médica" }
+    ]
+  }'
+```
+
+**Example response** `201 Created`
+
+```json
+{
+  "message": "Asistencia registrada correctamente",
+  "data": {
+    "id": 88,
+    "asignacion_docente_id": 18,
+    "fecha": "2026-06-10",
+    "created_at": "2026-06-10T08:05:00.000000Z",
+    "updated_at": "2026-06-10T08:05:00.000000Z",
+    "detalles": [
+      {
+        "id": 301,
+        "asistencia_id": 88,
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null,
+        "estudiante": { "id": 101, "user": { "name": "Ana Torres" } }
+      },
+      {
+        "id": 302,
+        "asistencia_id": 88,
+        "estudiante_id": 102,
+        "estado": "falta",
+        "observacion": "No avisó",
+        "estudiante": { "id": 102, "user": { "name": "Luis Ramírez" } }
+      }
+    ]
+  }
+}
+```
+
+**409 Conflict — duplicate date**
+
+If attendance has already been recorded for the same assignment and date:
+
+```json
+{
+  "message": "Ya se registró asistencia para esta materia en esta fecha"
+}
+```
+
+---
+
+## Get Attendance by Date
+
+Retrieves the attendance session (with all student detail records) for a specific date.
+
+```bash
+GET /api/periodos/{periodo}/asignaciones/{asignacion}/asistencia/{fecha}
+```
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment ID.
+</ParamField>
+
+<ParamField path="fecha" type="string (date)" required>
+  The session date in `YYYY-MM-DD` format.
+</ParamField>
+
+Returns the `Asistencia` record with its `detalles` (each including the related `estudiante.user`), or `404` with `"message": "No hay asistencia registrada"` if no session was recorded on that date.
+
+**Example response** `200 OK`
+
+```json
+{
+  "id": 88,
+  "asignacion_docente_id": 18,
+  "fecha": "2026-06-10",
+  "detalles": [
+    {
+      "id": 301,
+      "estudiante_id": 101,
+      "estado": "presente",
+      "observacion": null,
+      "estudiante": { "id": 101, "user": { "name": "Ana Torres" } }
+    }
+  ]
+}
+```
+
+---
+
+## List All Attendance Sessions
+
+Returns all attendance header records for the assignment, ordered by date descending. Detail records are not expanded in this list view.
+
+```bash
+GET /api/periodos/{periodo}/asignaciones/{asignacion}/asistencia
+```
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment ID.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+[
+  {
+    "id": 88,
+    "asignacion_docente_id": 18,
+    "fecha": "2026-06-10",
+    "created_at": "2026-06-10T08:05:00.000000Z",
+    "updated_at": "2026-06-10T08:05:00.000000Z"
+  },
+  {
+    "id": 75,
+    "asignacion_docente_id": 18,
+    "fecha": "2026-06-03",
+    "created_at": "2026-06-03T08:10:00.000000Z",
+    "updated_at": "2026-06-03T08:10:00.000000Z"
+  }
+]
+```
+
+---
+
+## Update an Attendance Session
+
+Replaces all detail records for an existing attendance session. The update operation **deletes all existing `AsistenciaDetalle` rows** for the session and inserts fresh ones from the request body. This ensures corrections are applied atomically.
+
+```bash
+PUT /api/asistencia/{id}
+```
+
+<ParamField path="id" type="integer" required>
+  The `Asistencia` (session header) ID to update.
+</ParamField>
+
+<ParamField body="asistencias" type="array" required>
+  The new complete set of per-student attendance records for this session. All previous detail rows will be replaced.
+
+  <Expandable title="asistencias[]">
+    <ParamField body="estudiante_id" type="integer" required>
+      ID of the student. Must exist in the `estudiantes` table.
+    </ParamField>
+    <ParamField body="estado" type="string" required>
+      Corrected attendance status: `presente`, `falta`, `justificado`, or `tarde`.
+    </ParamField>
+    <ParamField body="observacion" type="string">
+      Updated note for this student. Nullable.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X PUT https://your-tenant.coleapp.io/api/asistencia/88 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asistencias": [
+      { "estudiante_id": 101, "estado": "presente" },
+      { "estudiante_id": 102, "estado": "justificado", "observacion": "Certificado médico presentado" },
+      { "estudiante_id": 103, "estado": "presente" },
+      { "estudiante_id": 104, "estado": "presente" }
+    ]
+  }'
+```
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Asistencia actualizada",
+  "data": {
+    "id": 88,
+    "asignacion_docente_id": 18,
+    "fecha": "2026-06-10",
+    "detalles": [
+      {
+        "id": 310,
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null,
+        "estudiante": { "id": 101, "user": { "name": "Ana Torres" } }
+      },
+      {
+        "id": 311,
+        "estudiante_id": 102,
+        "estado": "justificado",
+        "observacion": "Certificado médico presentado",
+        "estudiante": { "id": 102, "user": { "name": "Luis Ramírez" } }
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Valid Attendance States
+
+| Value | Meaning |
+|---|---|
+| `presente` | Student was present for the class. |
+| `falta` | Student was absent without justification. |
+| `justificado` | Student was absent with an accepted justification. |
+| `tarde` | Student arrived late to the class. |

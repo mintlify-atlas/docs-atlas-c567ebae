@@ -1,0 +1,79 @@
+---
+title: "Cole: School Management API for Laravel"
+sidebarTitle: "Introduction"
+description: "Cole is a multi-tenant REST API for managing schools, built on Laravel 9. Covers tenants, roles, teachers, students, grades, attendance, and parent access."
+---
+
+Cole is a headless, multi-tenant REST API built with Laravel 9 that gives educational institutions a single, unified backend for everything that happens in and around a school. Instead of stitching together spreadsheets, standalone apps, or one-size-fits-all platforms, Cole exposes a clean JSON API that your frontend — whether a React dashboard, a mobile app, or a third-party integration — can consume directly. Every piece of data is automatically scoped to the requesting user's tenant, so a single Cole deployment can power dozens of independent schools without any risk of data leakage between them.
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/authentication">
+    Sanctum Bearer token authentication with token rotation on every login. Supports register, login, logout, and current-user endpoints.
+  </Card>
+  <Card title="Roles & Permissions" icon="shield-halved" href="/authentication#roles-overview">
+    Five built-in roles — super-admin, director, profesor, estudiante, and padre — each with precisely scoped access to resources.
+  </Card>
+  <Card title="Multi-Tenancy" icon="building-columns" href="/introduction#multi-tenancy">
+    Every user belongs to a tenant. All queries are automatically filtered to the current tenant, enforced at the model layer.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Up and running in five steps: clone, configure, migrate, seed, and make your first authenticated request.
+  </Card>
+</CardGroup>
+
+## Roles Overview
+
+Cole ships with five roles seeded by `RoleSeeder`. Roles are managed by [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission), so you can attach fine-grained permissions to any role without touching core code.
+
+| Role | Description |
+|---|---|
+| `super-admin` | Platform-wide administrator. Can manage tenants, create directors, and access all data across the system. |
+| `director` | School principal or administrative head within a single tenant. Manages teachers, students, timetables, and school-level settings. |
+| `profesor` | Teacher within a tenant. Can record attendance, add gradebook entries, publish circulars, and write anecdotes. |
+| `estudiante` | Student enrolled in the school. Has read access to their own grades, attendance records, agenda, and library resources. |
+| `padre` | Parent or guardian linked to one or more students. Can view their child's academic and attendance records. |
+
+<Note>
+  Roles are seeded once via `php artisan db:seed --class=RoleSeeder`. Every call to `POST /api/auth/register` must include a `role` field whose value matches one of these five role names exactly.
+</Note>
+
+## Module System
+
+Cole organises school functionality into modules that can be enabled or disabled per tenant. The core modules are:
+
+- **Agenda** — class schedules and school calendar events
+- **Asistencia** — daily and per-subject attendance tracking
+- **Circulares** — school-wide announcements and circular letters
+- **Anecdotario** — teacher notes and behavioural anecdotes attached to students
+- **Biblioteca** — school library catalogue and borrowing records
+- **Estudiantes** — student profiles, enrolment, and academic history
+
+Modules are seeded by `ModuleSeeder` (called automatically by `DatabaseSeeder`) and can be toggled at the tenant level by a `director` or `super-admin`.
+
+## Tech Stack
+
+<Tip>
+  Cole's dependencies are intentionally minimal and battle-tested. You won't need to learn any proprietary abstractions — it's plain Laravel all the way down.
+</Tip>
+
+| Package | Version | Purpose |
+|---|---|---|
+| `laravel/framework` | ^9.19 | Core MVC framework, routing, ORM (Eloquent), validation |
+| `laravel/sanctum` | ^3.3 | Stateless API token authentication |
+| `spatie/laravel-permission` | ^6.25 | Role and permission management |
+| `guzzlehttp/guzzle` | ^7.2 | HTTP client (bundled; useful for webhooks and outbound calls) |
+| PHP | ^8.0.2 | Minimum runtime requirement |
+
+## Multi-Tenancy
+
+Every `User` record in Cole is associated with a tenant. When an authenticated request arrives, the tenant is resolved from the current user and injected into all Eloquent queries via global scopes — you never have to remember to filter by tenant in your own application code. This means:
+
+- A `director` at School A cannot read, modify, or even enumerate resources that belong to School B.
+- A `super-admin` operates above the tenant scope and can manage all tenants.
+- API consumers receive only the data their tenant owns, with no additional query parameters needed.
+
+<Warning>
+  The tenant scope is enforced automatically at the model layer. Do not attempt to bypass it by passing raw tenant IDs in query parameters — those fields are ignored for scoped roles.
+</Warning>

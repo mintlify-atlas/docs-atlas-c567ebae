@@ -1,0 +1,378 @@
+---
+title: "Circulares API: School Announcements and Read Tracking"
+sidebarTitle: "Circulares"
+description: "Post school-wide announcements (circulares), mark them as read, and view delivery statistics. Requires the circulares module to be active."
+---
+
+Circulares are the school's official communication layer: directors post announcements and target them to specific audiences (all users, parents, teachers, or students). When a circular is created, the API automatically builds a `circular_user` pivot record for every user in the tenant that matches the target audience, enabling per-user read tracking. Any recipient can mark a circular as read, and directors can query delivery statistics at any time to see how many recipients have or have not opened the announcement.
+
+All endpoints require a valid Sanctum bearer token. The `module:circulares` middleware must be active on the tenant — if the module is disabled, all routes in this group return a module-not-available error before reaching the controller.
+
+---
+
+## Module Requirement
+
+<Note>
+  **Every endpoint in this section requires the `circulares` module to be enabled for the tenant.** This is enforced by the `module:circulares` middleware applied to all routes in the circulares route group. Contact your tenant administrator if requests are being rejected at the middleware level.
+</Note>
+
+---
+
+## Read Endpoints
+
+These endpoints are available to **any authenticated user** as long as the circulares module is active. Directors receive unfiltered lists; all other roles only see circulars they have been explicitly targeted to receive.
+
+### List Circulares
+
+<Note>**`GET`** `/api/circulares`</Note>
+
+Returns all circulares for the current tenant.
+
+- **Directors** receive every circular with the `creator` relationship included, regardless of audience targeting.
+- **All other roles** (parents, students, teachers) only see circulares that were addressed to them, filtered via the `circular_user` pivot. Each result also includes the user's own read status (`leido`, `leido_at`) from that pivot row.
+
+Results are ordered by creation date descending.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/circulares \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response (non-director user)**
+
+```json
+[
+  {
+    "id": 3,
+    "titulo": "Inicio del año escolar 2026-2027",
+    "contenido": "Les informamos que el año escolar iniciará el lunes 15 de septiembre...",
+    "target": "all",
+    "published_at": "2026-08-20T10:00:00.000000Z",
+    "created_at": "2026-08-20T09:58:00.000000Z",
+    "creator": {
+      "id": 1,
+      "name": "Director General"
+    },
+    "users": [
+      {
+        "id": 12,
+        "pivot": {
+          "leido": false,
+          "leido_at": null
+        }
+      }
+    ]
+  }
+]
+```
+
+---
+
+### Get a Single Circular
+
+<Note>**`GET`** `/api/circulares/{id}`</Note>
+
+Returns a single circular by ID.
+
+- **Directors** can retrieve any circular in their tenant.
+- **Other users** must have a `circular_user` record for the circular (i.e., they were in the target audience) or a `403 No autorizado` is returned.
+
+<ParamField path="id" type="integer" required>
+  The ID of the circular to retrieve.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/circulares/3 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "id": 3,
+  "titulo": "Inicio del año escolar 2026-2027",
+  "contenido": "Les informamos que el año escolar iniciará el lunes 15 de septiembre...",
+  "target": "all",
+  "published_at": "2026-08-20T10:00:00.000000Z",
+  "tenant_id": 1,
+  "created_by": 1,
+  "created_at": "2026-08-20T09:58:00.000000Z",
+  "updated_at": "2026-08-20T09:58:00.000000Z",
+  "creator": {
+    "id": 1,
+    "name": "Director General"
+  },
+  "users": [
+    {
+      "id": 12,
+      "pivot": { "leido": false, "leido_at": null }
+    }
+  ]
+}
+```
+
+---
+
+### Mark a Circular as Read
+
+<Note>**`POST`** `/api/circulares/{id}/leer`</Note>
+
+Marks the circular as read for the authenticated user by updating the `leido` flag and recording the `leido_at` timestamp in the `circular_user` pivot table. This endpoint is idempotent — if the circular is already marked as read, it returns success without modifying the existing `leido_at` timestamp.
+
+The request will return `404` if the authenticated user does not have a `circular_user` record for this circular (i.e., they were not in the target audience).
+
+<ParamField path="id" type="integer" required>
+  The ID of the circular to mark as read.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/circulares/3/leer \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Marcado como leído"
+}
+```
+
+---
+
+## Director Endpoints
+
+<Note>
+  The following endpoints require the authenticated user to hold the **`director`** role **in addition to** the `circulares` module being active. Requests from other roles will be rejected with `403 Forbidden`.
+</Note>
+
+### Create a Circular
+
+<Note>**`POST`** `/api/circulares`</Note>
+
+Creates a new circular and immediately delivers it to the target audience. On creation the API:
+
+1. Inserts the circular record with `published_at` set to the current timestamp.
+2. Queries all users in the tenant matching the `target` audience.
+3. Bulk-inserts one `circular_user` pivot row per recipient with `leido = false`.
+
+<ParamField body="titulo" type="string" required>
+  The subject/title of the circular announcement.
+</ParamField>
+
+<ParamField body="contenido" type="string" required>
+  The full body text of the circular. HTML or plain text.
+</ParamField>
+
+<ParamField body="target" type="string" required>
+  Who receives this circular. One of:
+  - `all` — every user in the tenant.
+  - `padres` — only users with the `padre` role.
+  - `profesores` — only users with the `profesor` role.
+  - `estudiantes` — only users with the `estudiante` role.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/circulares \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Reunión de padres de familia",
+    "contenido": "Se convoca a todos los padres de familia a la reunión del viernes 30 de mayo a las 18:00 en el auditorio principal.",
+    "target": "padres"
+  }'
+```
+
+**Sample response** `201 Created`
+
+```json
+{
+  "message": "Circular creada",
+  "data": {
+    "id": 4,
+    "titulo": "Reunión de padres de familia",
+    "contenido": "Se convoca a todos los padres de familia a la reunión del viernes 30 de mayo a las 18:00 en el auditorio principal.",
+    "target": "padres",
+    "tenant_id": 1,
+    "created_by": 1,
+    "published_at": "2026-05-25T14:22:00.000000Z",
+    "created_at": "2026-05-25T14:22:00.000000Z",
+    "updated_at": "2026-05-25T14:22:00.000000Z"
+  }
+}
+```
+
+<ResponseField name="data.id" type="integer">
+  ID of the newly created circular.
+</ResponseField>
+<ResponseField name="data.titulo" type="string">
+  Title as submitted.
+</ResponseField>
+<ResponseField name="data.contenido" type="string">
+  Body text as submitted.
+</ResponseField>
+<ResponseField name="data.target" type="string">
+  Audience targeting value: `all`, `padres`, `profesores`, or `estudiantes`.
+</ResponseField>
+<ResponseField name="data.tenant_id" type="integer">
+  Tenant the circular belongs to.
+</ResponseField>
+<ResponseField name="data.created_by" type="integer">
+  User ID of the director who created the circular.
+</ResponseField>
+<ResponseField name="data.published_at" type="string">
+  ISO 8601 timestamp when the circular was published (set automatically to `now()`).
+</ResponseField>
+
+---
+
+### Update a Circular
+
+<Note>**`PUT`** `/api/circulares/{id}`</Note>
+
+Updates the `titulo` and/or `contenido` of an existing circular. **A circular that has been read by at least one recipient cannot be edited.** Attempting to do so returns `400 Bad Request` with the message `"No se puede editar, ya fue leída"`. This protects the integrity of communication records that users have already acknowledged.
+
+<ParamField path="id" type="integer" required>
+  The ID of the circular to update.
+</ParamField>
+
+<ParamField body="titulo" type="string">
+  New title. Optional — only provided fields are changed.
+</ParamField>
+
+<ParamField body="contenido" type="string">
+  New body text. Optional — only provided fields are changed.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X PUT https://your-domain.com/api/circulares/4 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contenido": "Se convoca a todos los padres a la reunión del viernes 30 de mayo a las 18:30 (cambio de hora) en el auditorio principal."
+  }'
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Circular actualizada",
+  "data": {
+    "id": 4,
+    "titulo": "Reunión de padres de familia",
+    "contenido": "Se convoca a todos los padres a la reunión del viernes 30 de mayo a las 18:30 (cambio de hora) en el auditorio principal.",
+    "target": "padres",
+    "published_at": "2026-05-25T14:22:00.000000Z",
+    "updated_at": "2026-05-25T14:45:00.000000Z"
+  }
+}
+```
+
+**Error response when already read** `400 Bad Request`
+
+```json
+{
+  "message": "No se puede editar, ya fue leída"
+}
+```
+
+---
+
+### Delete a Circular
+
+<Note>**`DELETE`** `/api/circulares/{id}`</Note>
+
+Permanently deletes a circular and, via cascade, all associated `circular_user` pivot rows. The circular must belong to the director's tenant; attempting to delete a circular from another tenant returns `403 No autorizado`.
+
+<ParamField path="id" type="integer" required>
+  The ID of the circular to delete.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X DELETE https://your-domain.com/api/circulares/4 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Circular eliminada"
+}
+```
+
+---
+
+### View Read / Delivery Statistics
+
+<Note>**`GET`** `/api/circulares/{id}/stats`</Note>
+
+Returns read-receipt statistics for the given circular. The counts are derived from the `circular_user` pivot table: `total` is the number of users the circular was delivered to, `leidos` is the number who have marked it as read, and `pendientes` is the difference.
+
+<ParamField path="id" type="integer" required>
+  The ID of the circular to retrieve stats for.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/circulares/3/stats \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "total": 48,
+  "leidos": 31,
+  "pendientes": 17
+}
+```
+
+<ResponseField name="total" type="integer">
+  Total number of users the circular was delivered to (rows in `circular_user` for this circular).
+</ResponseField>
+<ResponseField name="leidos" type="integer">
+  Number of recipients who have marked the circular as read (`leido = true`).
+</ResponseField>
+<ResponseField name="pendientes" type="integer">
+  Number of recipients who have not yet read the circular (`total − leidos`).
+</ResponseField>
+
+---
+
+## Read Tracking — How It Works
+
+The circulares feature uses a `circular_user` pivot table to track delivery and read receipts on a per-user basis. Here is the full lifecycle:
+
+1. **Creation** — When a director calls `POST /api/circulares`, the API resolves every user in the tenant whose role matches `target`. One `circular_user` row is inserted per user with `leido = false` and `leido_at = null`.
+
+2. **Listing** — Non-director users only see circulares for which a `circular_user` row exists with their `user_id`. The pivot data (read status) is eager-loaded and returned alongside the circular content.
+
+3. **Marking as read** — When a user calls `POST /api/circulares/{id}/leer`, the API looks up the user's own `circular_user` row and sets `leido = true` and `leido_at = now()`. This operation is guarded so that a circular already marked as read is not updated a second time (the original `leido_at` is preserved).
+
+4. **Statistics** — `GET /api/circulares/{id}/stats` aggregates counts directly from the `circular_user` table, giving directors a real-time view of how many recipients have and have not acknowledged a circular.
+
+5. **Edit protection** — A circular cannot be modified once any recipient has read it. This ensures the read receipt is an accurate acknowledgement of the actual content that was delivered.

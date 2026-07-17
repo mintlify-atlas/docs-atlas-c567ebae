@@ -1,0 +1,603 @@
+---
+title: "Tenants API: Create and Manage School Accounts"
+sidebarTitle: "Tenants"
+description: "CRUD for school tenants, logo upload, and module assignment. Super-admin manages all tenants; directors manage their own school."
+---
+
+In Cole, a **tenant** represents a single school (or other educational institution). The multi-tenant architecture means every piece of data — academic periods, professors, students, courses — belongs to exactly one tenant. Two distinct role categories govern tenant management: `super-admin` has platform-wide visibility and can create or delete any tenant, while `director` has access only to the tenant they were assigned to when their account was created.
+
+When a super-admin creates a tenant, Cole simultaneously creates a `director` user account for that school and attaches every available module to the tenant in an **inactive** state, ready to be individually enabled later.
+
+---
+
+## Tenant CRUD (super-admin)
+
+### POST /api/tenants
+
+Creates a new tenant, provisions a `director` user for it, and attaches all existing modules in an inactive state — all within a single database transaction.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `super-admin`
+
+#### Request body
+
+<ParamField body="name" type="string" required>
+  The official name of the school. Example: `"Colegio Lincoln"`.
+</ParamField>
+
+<ParamField body="slug" type="string" required>
+  A URL-safe unique identifier for the tenant. Must be unique across all tenants. Example: `"lincoln"`.
+</ParamField>
+
+<ParamField body="director_name" type="string" required>
+  Full name of the director user that will be created for this tenant.
+</ParamField>
+
+<ParamField body="director_email" type="string" required>
+  Email address for the director account. Must be unique in the `users` table.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Initial password for the director account. Stored as a bcrypt hash.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="tenant" type="object">
+  The newly created tenant record.
+
+  <Expandable title="tenant fields">
+    <ResponseField name="id" type="integer">Unique tenant ID.</ResponseField>
+    <ResponseField name="name" type="string">School name.</ResponseField>
+    <ResponseField name="slug" type="string">URL-safe unique identifier.</ResponseField>
+    <ResponseField name="is_active" type="boolean">Whether the tenant is active. Defaults to `true`.</ResponseField>
+    <ResponseField name="logo" type="string | null">Relative storage path to the logo file. `null` until a logo is uploaded.</ResponseField>
+    <ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+    <ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="logo_url" type="null">
+  Always `null` on creation. Upload a logo separately via `POST /api/tenants/logo`.
+</ResponseField>
+
+<ResponseField name="director" type="object">
+  The newly created director user, with `tenant_id` set and the `director` role assigned.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/tenants \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..." \
+  -d '{
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "director_name": "Carlos Mendoza",
+    "director_email": "carlos@lincoln.edu",
+    "password": "securePass1"
+  }'
+```
+
+```json
+{
+  "tenant": {
+    "id": 3,
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "is_active": true,
+    "logo": null,
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-02T10:00:00.000000Z"
+  },
+  "logo_url": null,
+  "director": {
+    "id": 5,
+    "name": "Carlos Mendoza",
+    "email": "carlos@lincoln.edu",
+    "tenant_id": 3,
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-02T10:00:00.000000Z"
+  }
+}
+```
+
+---
+
+### GET /api/tenants
+
+Returns an array of all tenants in the system. Each item in the array includes an appended `logo_url` field pointing to the publicly accessible logo image.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `super-admin`
+
+#### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/tenants \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Colegio San Marcos",
+    "slug": "san-marcos",
+    "is_active": true,
+    "logo": "tenants/tenant_1.png",
+    "logo_url": "https://your-cole-api.test/storage/tenants/tenant_1.png",
+    "created_at": "2026-04-01T09:00:00.000000Z",
+    "updated_at": "2026-04-05T14:30:00.000000Z"
+  },
+  {
+    "id": 3,
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "is_active": true,
+    "logo": null,
+    "logo_url": null,
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-02T10:00:00.000000Z"
+  }
+]
+```
+
+---
+
+### GET /api/tenants/{id}
+
+Returns a single tenant by its numeric ID.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `super-admin`
+
+#### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the tenant to retrieve.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="data" type="object">
+  The tenant record.
+</ResponseField>
+
+<ResponseField name="logo_url" type="string | null">
+  Fully qualified URL to the tenant's logo, or `null` if no logo has been uploaded.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/tenants/3 \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+{
+  "data": {
+    "id": 3,
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "is_active": true,
+    "logo": null,
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-02T10:00:00.000000Z"
+  },
+  "logo_url": null
+}
+```
+
+---
+
+### DELETE /api/tenants/{id}
+
+Permanently deletes a tenant. If the tenant has a logo stored on disk, it is removed from the `public` storage disk before the database record is deleted.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `super-admin`
+
+<Warning>
+  This operation is irreversible. Deleting a tenant removes its record from the database along with any associated logo file. Dependent data (users, academic periods, etc.) may also be cascade-deleted depending on foreign key constraints.
+</Warning>
+
+#### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the tenant to delete.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="success" type="boolean">
+  `true` when the tenant was successfully deleted.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Tenant eliminado correctamente"`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X DELETE https://your-cole-api.test/api/tenants/3 \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+{
+  "success": true,
+  "message": "Tenant eliminado correctamente"
+}
+```
+
+---
+
+## Director Tenant Management
+
+Directors cannot see or modify other tenants. They operate exclusively on the tenant they belong to, identified automatically from the `tenant_id` field on their user record.
+
+### GET /api/my-tenant
+
+Returns the authenticated director's own tenant record along with its logo URL.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+#### Response `200 OK`
+
+<ResponseField name="data" type="object">
+  The director's tenant record.
+</ResponseField>
+
+<ResponseField name="logo_url" type="string | null">
+  Fully qualified URL to the tenant's logo file, or `null` if no logo has been uploaded yet.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/my-tenant \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "data": {
+    "id": 3,
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "is_active": true,
+    "logo": "tenants/tenant_3.png",
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-06T08:00:00.000000Z"
+  },
+  "logo_url": "https://your-cole-api.test/storage/tenants/tenant_3.png"
+}
+```
+
+---
+
+### POST /api/tenants/logo
+
+Uploads or replaces the logo for the authenticated director's tenant. The file is stored on the `public` disk under `tenants/tenant_{id}.{ext}`. Any previously stored logo is deleted before the new file is saved.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+<Note>
+  This endpoint expects a `multipart/form-data` request, not JSON. Set your `Content-Type` to `multipart/form-data` or use a form upload client.
+</Note>
+
+#### Request body (multipart/form-data)
+
+<ParamField body="logo" type="file" required>
+  Image file to use as the tenant logo. Accepted MIME types: `image/png`, `image/jpg`, `image/jpeg`. Maximum size: **2 MB** (2048 KB).
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="success" type="boolean">
+  `true` on a successful upload.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The updated tenant record, including the new `logo` path.
+</ResponseField>
+
+<ResponseField name="logo_url" type="string">
+  Fully qualified URL to the newly uploaded logo.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/tenants/logo \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..." \
+  -F "logo=@/path/to/logo.png"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "name": "Colegio Lincoln",
+    "slug": "lincoln",
+    "is_active": true,
+    "logo": "tenants/tenant_3.png",
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-06T08:30:00.000000Z"
+  },
+  "logo_url": "https://your-cole-api.test/storage/tenants/tenant_3.png"
+}
+```
+
+---
+
+### PUT /api/tenants
+
+Updates the `name` and `slug` of the authenticated director's tenant. The slug uniqueness check excludes the current tenant so a director can re-submit their existing slug without a conflict error.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+#### Request body
+
+<ParamField body="name" type="string" required>
+  New name for the tenant. Example: `"Colegio Lincoln Internacional"`.
+</ParamField>
+
+<ParamField body="slug" type="string" required>
+  New URL-safe identifier. Must be unique across all tenants, excluding the current tenant's existing slug.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="success" type="boolean">
+  `true` on a successful update.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The updated tenant record.
+</ResponseField>
+
+<ResponseField name="logo_url" type="string | null">
+  Fully qualified logo URL, or `null` if no logo has been uploaded.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X PUT https://your-cole-api.test/api/tenants \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..." \
+  -d '{
+    "name": "Colegio Lincoln Internacional",
+    "slug": "lincoln-int"
+  }'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "name": "Colegio Lincoln Internacional",
+    "slug": "lincoln-int",
+    "is_active": true,
+    "logo": "tenants/tenant_3.png",
+    "created_at": "2026-04-02T10:00:00.000000Z",
+    "updated_at": "2026-04-06T09:00:00.000000Z"
+  },
+  "logo_url": "https://your-cole-api.test/storage/tenants/tenant_3.png"
+}
+```
+
+---
+
+## Module Sub-endpoints (super-admin)
+
+Modules represent optional feature sets that can be enabled or disabled per tenant. When a tenant is created, all available modules are attached automatically in an **inactive** state. The super-admin uses these endpoints to control which modules a given school can access.
+
+All module sub-endpoints require: `Authorization: Bearer <token>` — role `super-admin`
+
+---
+
+### GET /api/tenants/{tenantId}/modules
+
+Returns all modules currently attached to a tenant, including the activation status for each.
+
+#### Path parameters
+
+<ParamField path="tenantId" type="integer" required>
+  The ID of the tenant whose modules you want to list.
+</ParamField>
+
+#### Response `200 OK`
+
+Returns an array of module objects, each with the following fields:
+
+<ResponseField name="id" type="integer">Module ID.</ResponseField>
+<ResponseField name="codigo" type="string">Short code for the module. Example: `"ACADEMICO"`.</ResponseField>
+<ResponseField name="nombre" type="string">Human-readable module name.</ResponseField>
+<ResponseField name="descripcion" type="string">Brief description of the module.</ResponseField>
+<ResponseField name="activo" type="boolean">Whether the module is currently active for this tenant.</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/tenants/3/modules \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+[
+  {
+    "id": 1,
+    "codigo": "ACADEMICO",
+    "nombre": "Módulo Académico",
+    "descripcion": "Gestión de cursos, materias y calificaciones",
+    "activo": true
+  },
+  {
+    "id": 2,
+    "codigo": "ASISTENCIA",
+    "nombre": "Módulo de Asistencia",
+    "descripcion": "Control de asistencia de estudiantes",
+    "activo": false
+  }
+]
+```
+
+---
+
+### POST /api/tenants/{tenantId}/modules
+
+Assigns a module to a tenant and sets it as active. Uses `syncWithoutDetaching`, so calling this on a module that is already attached will simply update its status to `active`.
+
+#### Path parameters
+
+<ParamField path="tenantId" type="integer" required>
+  The ID of the tenant to assign the module to.
+</ParamField>
+
+#### Request body
+
+<ParamField body="module_id" type="integer" required>
+  The ID of the module to assign. Must exist in the `modules` table.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Módulo asignado correctamente."`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/tenants/3/modules \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..." \
+  -d '{ "module_id": 2 }'
+```
+
+```json
+{
+  "message": "Módulo asignado correctamente."
+}
+```
+
+---
+
+### DELETE /api/tenants/{tenantId}/modules/{moduleId}
+
+Detaches a module from a tenant entirely, removing the pivot record.
+
+#### Path parameters
+
+<ParamField path="tenantId" type="integer" required>
+  The ID of the tenant.
+</ParamField>
+
+<ParamField path="moduleId" type="integer" required>
+  The ID of the module to remove.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Módulo removido correctamente."`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X DELETE https://your-cole-api.test/api/tenants/3/modules/2 \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+{
+  "message": "Módulo removido correctamente."
+}
+```
+
+---
+
+### PATCH /api/tenants/{tenantId}/modules/{moduleId}/activate
+
+Sets the `activo` pivot flag to `true` for the specified module on the given tenant. The module must already be attached.
+
+#### Path parameters
+
+<ParamField path="tenantId" type="integer" required>
+  The ID of the tenant.
+</ParamField>
+
+<ParamField path="moduleId" type="integer" required>
+  The ID of the module to activate.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Módulo activado correctamente."`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X PATCH https://your-cole-api.test/api/tenants/3/modules/2/activate \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+{
+  "message": "Módulo activado correctamente."
+}
+```
+
+---
+
+### PATCH /api/tenants/{tenantId}/modules/{moduleId}/deactivate
+
+Sets the `activo` pivot flag to `false` for the specified module on the given tenant.
+
+#### Path parameters
+
+<ParamField path="tenantId" type="integer" required>
+  The ID of the tenant.
+</ParamField>
+
+<ParamField path="moduleId" type="integer" required>
+  The ID of the module to deactivate.
+</ParamField>
+
+#### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Módulo desactivado correctamente."`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -s -X PATCH https://your-cole-api.test/api/tenants/3/modules/2/deactivate \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 2|superAdminToken..."
+```
+
+```json
+{
+  "message": "Módulo desactivado correctamente."
+}
+```

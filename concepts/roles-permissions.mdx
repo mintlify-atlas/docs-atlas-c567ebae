@@ -1,0 +1,177 @@
+---
+title: "Roles and Permissions in Cole"
+sidebarTitle: "Roles & Permissions"
+description: "Cole uses five Spatie roles — super-admin, director, profesor, estudiante, and padre — each with distinct API access scoped to their function."
+---
+
+Cole's authorization layer is built on [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission). Every user is assigned exactly one role at creation time, and that role determines which API endpoints the user can reach, which data they can read or write, and whether they are bound to a single tenant or have cross-tenant authority. All role checks are enforced at the route middleware level using the `role` middleware alias registered in `Kernel.php`.
+
+## Spatie Laravel Permission Integration
+
+The `User` model uses the `HasRoles` trait provided by Spatie, giving every user instance the standard `assignRole`, `hasRole`, `getRoleNames`, and `can` helpers:
+
+```php
+// app/Models/User.php
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasRoles, HasApiTokens, HasFactory, Notifiable;
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'tenant_id',
+    ];
+
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+}
+```
+
+The five roles are seeded into the `roles` table by `RoleSeeder`:
+
+```php
+// database/seeders/RoleSeeder.php
+Role::create(['name' => 'super-admin']);
+Role::create(['name' => 'director']);
+Role::create(['name' => 'profesor']);
+Role::create(['name' => 'estudiante']);
+Role::create(['name' => 'padre']);
+```
+
+## Role Reference
+
+<CardGroup cols={1}>
+  <Card title="super-admin" icon="crown">
+    Platform-level administrator. Has no `tenant_id`, so all Eloquent global scopes are bypassed. Can create and manage tenants, assign modules, and access any endpoint across every school account.
+  </Card>
+  <Card title="director" icon="building-columns">
+    School principal. Belongs to one tenant. Manages the full operational data of their school: teachers, students, courses, class sections (paralelos), academic periods, and evaluation criteria.
+  </Card>
+  <Card title="profesor" icon="chalkboard-user">
+    Teacher. Belongs to one tenant. Can record and view attendance, enter grades, manage agenda items, and write anecdotario entries for the courses they are assigned to.
+  </Card>
+  <Card title="estudiante" icon="graduation-cap">
+    Student. Belongs to one tenant. Can view their own schedule, check pending agenda tasks, and submit task deliveries (entregas). Read access is restricted to their own enrolments and grades.
+  </Card>
+  <Card title="padre" icon="people-roof">
+    Parent or guardian. Belongs to one tenant. Can view the grades, attendance records, agenda entries, and anecdotario notes associated with their linked children.
+  </Card>
+</CardGroup>
+
+### Summary Table
+
+| Role        | Tenant-scoped | Manage tenants | Manage modules | Teachers & courses | Attendance & grades | Own data only |
+|-------------|:-------------:|:--------------:|:--------------:|:------------------:|:-------------------:|:-------------:|
+| super-admin | ✗             | ✓              | ✓              | ✓                  | ✓                   | ✗             |
+| director    | ✓             | ✗              | ✗              | ✓                  | ✓                   | ✗             |
+| profesor    | ✓             | ✗              | ✗              | ✗                  | ✓                   | ✗             |
+| estudiante  | ✓             | ✗              | ✗              | ✗                  | ✗                   | ✓             |
+| padre       | ✓             | ✗              | ✗              | ✗                  | ✗                   | ✓             |
+
+## Role Details
+
+<Accordion title="super-admin — Platform Administrator">
+  The `super-admin` role is intended for the platform operator, not for school staff. A super-admin's `tenant_id` is `null`, which means:
+
+  - The `BelongsToTenant` global scope does **not** apply — queries return records from all tenants.
+  - The `CheckModule` middleware is bypassed — all module-gated endpoints are accessible.
+
+  Typical super-admin operations:
+  - `POST /api/tenants` — Create a new school account
+  - `GET /api/tenants` — List all schools
+  - `POST /api/tenants/{tenantId}/modules` — Assign a module to a school
+  - `PATCH /api/tenants/{tenantId}/modules/{moduleId}/activate` — Activate a module
+  - `PATCH /api/tenants/{tenantId}/modules/{moduleId}/deactivate` — Deactivate a module
+</Accordion>
+
+<Accordion title="director — School Principal">
+  A director is the administrative head of a single school. They control the master data of their institution:
+
+  - Academic periods and evaluation periods
+  - Courses, subjects, and class sections (paralelos)
+  - Teacher enrolments and teacher-to-subject assignments
+  - Student profiles and course enrolments
+  - Grading criteria
+
+  Directors can read and manage data for all users within their tenant but cannot cross tenant boundaries.
+</Accordion>
+
+<Accordion title="profesor — Teacher">
+  A teacher operates within the courses they are assigned to. Their access focuses on day-to-day instructional data:
+
+  - Record and query attendance (`asistencia` module)
+  - Enter and update student grades (`nota`, `criterio`)
+  - Create and update agenda entries (`agenda` module)
+  - Write anecdotario notes about students (`anecdotario` module)
+
+  A teacher cannot modify master data such as course definitions or student enrolments — those are managed by the director.
+</Accordion>
+
+<Accordion title="estudiante — Student">
+  A student has read-only access to their own academic information:
+
+  - View their schedule and assigned courses
+  - View pending agenda tasks
+  - Submit task deliveries and upload attachments
+  - View their own grades and attendance record
+
+  All queries are automatically scoped to the student's tenant through the `BelongsToTenant` global scope.
+</Accordion>
+
+<Accordion title="padre — Parent / Guardian">
+  A parent or guardian account is linked to one or more student profiles via the `PadreEstudiante` pivot. A padre can:
+
+  - View the grades of their linked children
+  - View attendance records for their linked children
+  - View agenda items and anecdotario notes related to their children
+
+  Parents cannot modify any data — their access is strictly read-only across all modules.
+</Accordion>
+
+## Assigning Roles
+
+Roles are assigned at the point of user creation using Spatie's `assignRole` method:
+
+```php
+$user = User::create([
+    'name'      => 'Ana Torres',
+    'email'     => 'ana@sanandres.edu',
+    'password'  => bcrypt('secret'),
+    'tenant_id' => $tenant->id,
+]);
+
+$user->assignRole('profesor');
+```
+
+<Warning>
+  Each user should be assigned exactly one role. Assigning multiple roles can produce unpredictable results in middleware guards and module bypass logic that checks for `super-admin` specifically.
+</Warning>
+
+## Using Role Middleware on Routes
+
+The `role` middleware alias maps to `Spatie\Permission\Middleware\RoleMiddleware`. Apply it to route groups or individual routes using a pipe-separated list of accepted roles:
+
+```php
+// Allow only directors and professors to access this group
+Route::middleware(['auth:sanctum', 'tenant', 'role:director|profesor'])
+    ->prefix('api')
+    ->group(function () {
+        Route::get('/asistencia', [AsistenciaController::class, 'index']);
+        Route::post('/asistencia', [AsistenciaController::class, 'store']);
+    });
+
+// Restrict a single route to the director only
+Route::patch('/cursos/{curso}', [CursoController::class, 'update'])
+    ->middleware('role:director');
+```
+
+Attempting to access a route without the required role returns a `403 Forbidden` response from the Spatie middleware.
+
+<Tip>
+  The middleware keys `permission` and `role_or_permission` are also registered in `Kernel.php` for fine-grained permission checks beyond role-level guards, should you need them as the application grows.
+</Tip>

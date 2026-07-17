@@ -1,0 +1,325 @@
+---
+title: "Record and Calculate Student Grades in Cole"
+sidebarTitle: "Grading"
+description: "Set up evaluation periods, define weighted grading criteria, enter student grades, and retrieve the gradebook and final averages."
+---
+
+Cole's grading system is built around a weighted-criteria model: each teacher assignment is divided into one or more **evaluation periods** (e.g., Q1, Q2), and within each evaluation period the teacher defines **criteria** (e.g., "Homework", "Midterm Exam") each carrying a percentage weight. Grades entered per criterion are combined automatically into a weighted average. This guide walks through the full flow from evaluation period creation to the student report card.
+
+<Note>
+  Grade entry (`POST /api/criterios/{criterio}/notas`) and gradebook retrieval require the `profesor` role. Viewing averages and the report card (`GET /api/estudiantes/{estudiante}/boletin`) also requires `director` or `profesor`.
+</Note>
+
+<Steps>
+
+  <Step title="Create Evaluation Periods">
+    Evaluation periods (`periodos_evaluacion`) divide an academic period into grading windows — for example, four quarters or two semesters. They are created by a `director` or `profesor` and scoped to an academic period.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/periodos/1/periodos-evaluacion \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Q1 – First Quarter",
+        "fecha_inicio": "2024-09-01",
+        "fecha_fin": "2024-11-15"
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "academic_period_id": 1,
+      "nombre": "Q1 – First Quarter",
+      "fecha_inicio": "2024-09-01",
+      "fecha_fin": "2024-11-15"
+    }
+    ```
+
+    List all evaluation periods for an academic period:
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/periodos/1/periodos-evaluacion \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    List the evaluation periods linked to a teacher's assignment:
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/asignaciones/5/periodos-evaluacion \
+      -H "Authorization: Bearer <token>"
+    ```
+  </Step>
+
+  <Step title="Define Weighted Grading Criteria">
+    For each combination of teacher assignment and evaluation period, the teacher defines the criteria that will be graded. Every criterion has a `nombre` (label) and a `porcentaje` (weight). **The percentages for all criteria in a given assignment + evaluation period must sum to exactly 100.**
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/criterios/asignacion/5 \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Class Participation",
+        "porcentaje": 20,
+        "periodo_evaluacion_id": 1
+      }'
+    ```
+
+    ```json
+    {
+      "id": 10,
+      "asignacion_docente_id": 5,
+      "periodo_evaluacion_id": 1,
+      "nombre": "Class Participation",
+      "porcentaje": 20
+    }
+    ```
+
+    Repeat for each criterion until the weights reach 100 %. A typical setup for one evaluation period:
+
+    | Criterion | Weight |
+    |---|---|
+    | Class Participation | 20 % |
+    | Homework | 30 % |
+    | Midterm Exam | 50 % |
+
+    <Warning>
+      If the percentages across all criteria for an assignment + evaluation period do not sum to 100, weighted average calculations will be incorrect. Cole does not enforce this at the API level — it is the teacher's responsibility.
+    </Warning>
+
+    Other criterion operations (all require `profesor` role):
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/criterios/asignacion/{asignacionId}` | List criteria for an assignment |
+    | `GET` | `/api/periodos-evaluacion/{periodoId}/criterios` | All criteria in an evaluation period |
+    | `GET` | `/api/periodos-evaluacion/{periodo}/mis-criterios` | The authenticated teacher's own criteria |
+    | `PUT` | `/api/criterios/{criterioId}` | Update a criterion |
+    | `DELETE` | `/api/criterios/{criterioId}` | Delete a criterion |
+  </Step>
+
+  <Step title="Enter Student Grades">
+    Grades are entered per criterion in a single batch request. Each item in the `notas` array specifies a `estudiante_id`, a `nota` (0–100), and an optional `observacion`. Cole performs an `updateOrCreate` — sending the same student twice for the same criterion simply overwrites the existing record.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/criterios/10/notas \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "notas": [
+          {
+            "estudiante_id": 101,
+            "nota": 88,
+            "observacion": "Good participation"
+          },
+          {
+            "estudiante_id": 102,
+            "nota": 74,
+            "observacion": null
+          },
+          {
+            "estudiante_id": 103,
+            "nota": 95,
+            "observacion": "Excellent"
+          }
+        ]
+      }'
+    ```
+
+    ```json
+    {
+      "message": "Notas guardadas correctamente"
+    }
+    ```
+
+    To review the grades already entered for a criterion (returns all students enrolled in that course section):
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/criterios/10/notas \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    [
+      {
+        "id": 101,
+        "nombre": "Ana García",
+        "nota_id": 55,
+        "nota": 88,
+        "observacion": "Good participation"
+      },
+      {
+        "id": 102,
+        "nombre": "Luis Martínez",
+        "nota_id": 56,
+        "nota": 74,
+        "observacion": null
+      },
+      {
+        "id": 103,
+        "nombre": "María López",
+        "nota_id": 57,
+        "nota": 95,
+        "observacion": "Excellent"
+      }
+    ]
+    ```
+  </Step>
+
+  <Step title="View the Gradebook">
+    The gradebook (`libro de calificaciones`) returns every enrolled student alongside their per-criterion scores and the weighted average for the requested evaluation period.
+
+    ```bash
+    curl -X GET "https://api.yourschool.com/api/asignaciones/5/periodos-evaluacion/1/libro-calificaciones" \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    {
+      "criterios": [
+        { "id": 10, "nombre": "Class Participation", "porcentaje": 20 },
+        { "id": 11, "nombre": "Homework",            "porcentaje": 30 },
+        { "id": 12, "nombre": "Midterm Exam",         "porcentaje": 50 }
+      ],
+      "estudiantes": [
+        {
+          "estudiante_id": 101,
+          "estudiante": "Ana García",
+          "notas": [
+            { "criterio_id": 10, "criterio": "Class Participation", "porcentaje": 20, "nota": 88 },
+            { "criterio_id": 11, "criterio": "Homework",            "porcentaje": 30, "nota": 92 },
+            { "criterio_id": 12, "criterio": "Midterm Exam",         "porcentaje": 50, "nota": 85 }
+          ],
+          "promedio": 87.6
+        },
+        {
+          "estudiante_id": 102,
+          "estudiante": "Luis Martínez",
+          "notas": [
+            { "criterio_id": 10, "criterio": "Class Participation", "porcentaje": 20, "nota": 74 },
+            { "criterio_id": 11, "criterio": "Homework",            "porcentaje": 30, "nota": 68 },
+            { "criterio_id": 12, "criterio": "Midterm Exam",         "porcentaje": 50, "nota": 71 }
+          ],
+          "promedio": 70.9
+        }
+      ]
+    }
+    ```
+
+    The `promedio` field is calculated as:
+
+    ```
+    promedio = Σ (nota × porcentaje / 100)
+    ```
+
+    For Ana García: `(88 × 0.20) + (92 × 0.30) + (85 × 0.50) = 17.6 + 27.6 + 42.5 = 87.7`
+
+    <Note>
+      Students with no grade recorded for a criterion are treated as `0` in the weighted average calculation.
+    </Note>
+  </Step>
+
+  <Step title="View Period Averages">
+    Retrieve the computed averages for all students in a specific evaluation period across the whole school. This endpoint is available to both `profesor` and `director`.
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/periodos-evaluacion/1/promedio \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    [
+      {
+        "estudiante_id": 101,
+        "estudiante": "Ana García",
+        "promedio": 87.6
+      },
+      {
+        "estudiante_id": 102,
+        "estudiante": "Luis Martínez",
+        "promedio": 70.9
+      }
+    ]
+    ```
+  </Step>
+
+  <Step title="View a Student's Final Average">
+    Retrieve the overall final average for a student across all evaluation periods in the current academic period.
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/estudiantes/101/promedio-final \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    {
+      "estudiante_id": 101,
+      "estudiante": "Ana García",
+      "promedio_final": 85.3
+    }
+    ```
+  </Step>
+
+  <Step title="View the Student Report Card (Boletín)">
+    The `boletin` endpoint returns a complete report card for a student: all subjects, evaluation periods, criteria, individual grades, and computed averages in a single response.
+
+    ```bash
+    curl -X GET https://api.yourschool.com/api/estudiantes/101/boletin \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    {
+      "estudiante": {
+        "id": 101,
+        "nombre": "Ana García"
+      },
+      "materias": [
+        {
+          "subject": "Mathematics",
+          "periodos": [
+            {
+              "periodo": "Q1 – First Quarter",
+              "criterios": [
+                { "nombre": "Class Participation", "porcentaje": 20, "nota": 88 },
+                { "nombre": "Homework",            "porcentaje": 30, "nota": 92 },
+                { "nombre": "Midterm Exam",         "porcentaje": 50, "nota": 85 }
+              ],
+              "promedio": 87.6
+            }
+          ],
+          "promedio_final": 87.6
+        }
+      ],
+      "promedio_general": 85.3
+    }
+    ```
+
+    <Tip>
+      Parents can view the same report card data for their children through the parent portal at `GET /api/padre/mis-hijos/{estudiante}/notas`. See the [Parent Portal](/guides/parent-portal) guide for details.
+    </Tip>
+  </Step>
+
+</Steps>
+
+## Grading Quick-Reference
+
+<Accordion title="All Grading Endpoints">
+
+  | Method | Endpoint | Role | Description |
+  |---|---|---|---|
+  | `POST` | `/api/periodos/{periodo}/periodos-evaluacion` | `director`, `profesor` | Create an evaluation period |
+  | `GET` | `/api/periodos/{periodo}/periodos-evaluacion` | `director`, `profesor` | List evaluation periods |
+  | `GET` | `/api/asignaciones/{asignacion}/periodos-evaluacion` | `profesor` | Evaluation periods for an assignment |
+  | `POST` | `/api/criterios/asignacion/{asignacionId}` | `profesor` | Create a grading criterion |
+  | `GET` | `/api/criterios/asignacion/{asignacionId}` | `profesor` | List criteria for an assignment |
+  | `PUT` | `/api/criterios/{criterioId}` | `profesor` | Update a criterion |
+  | `DELETE` | `/api/criterios/{criterioId}` | `profesor` | Delete a criterion |
+  | `POST` | `/api/criterios/{criterio}/notas` | `profesor` | Enter/update grades |
+  | `GET` | `/api/criterios/{criterio}/notas` | `profesor` | View grades for a criterion |
+  | `GET` | `/api/asignaciones/{asignacion}/periodos-evaluacion/{periodo}/libro-calificaciones` | `profesor` | Full gradebook with weighted averages |
+  | `GET` | `/api/periodos-evaluacion/{periodoId}/promedio` | `profesor`, `director` | Period averages for all students |
+  | `GET` | `/api/estudiantes/{estudiante}/promedio-final` | `profesor`, `director` | Student final average |
+  | `GET` | `/api/estudiantes/{estudiante}/boletin` | `profesor`, `director` | Full report card |
+
+</Accordion>

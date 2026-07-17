@@ -1,0 +1,637 @@
+---
+title: "Parent Portal API: Family Management and Child Monitoring"
+sidebarTitle: "Parent Portal"
+description: "Endpoints for managing parent-family accounts, linking children, and allowing parents to view their children's grades, attendance, agenda, and anecdotal records."
+---
+
+The Parent Portal API covers two distinct sets of functionality: school **directors** who manage parent accounts and link children to those accounts, and **parents** themselves who authenticate and access live data about each of their children — tasks, grades, attendance records, and behavioral notes. All routes are scoped to the authenticated user's tenant, so data from one school is never visible to another.
+
+All endpoints require a valid Sanctum bearer token obtained through the authentication flow. Role enforcement is handled by the `role:director` and `role:padre` middleware respectively.
+
+---
+
+## Director-Managed Endpoints
+
+<Note>
+  All endpoints in this section require the authenticated user to hold the **`director`** role. Requests made with any other role will receive a `403 Forbidden` response.
+</Note>
+
+### List All Parents
+
+<Note>**`GET`** `/api/padre-familias`</Note>
+
+Returns all parent-family records in the current tenant, including each parent's linked user account and their associated children.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre-familias \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "id": 1,
+    "user_id": 12,
+    "telefono": "555-1234",
+    "ocupacion": "Ingeniero",
+    "tenant_id": 1,
+    "user": {
+      "id": 12,
+      "name": "Carlos Ramírez",
+      "email": "carlos@example.com"
+    },
+    "estudiantes": [
+      {
+        "id": 3,
+        "codigo_estudiante": "EST-001",
+        "user": { "id": 15, "name": "Daniela Ramírez" },
+        "pivot": { "parentesco": "padre" }
+      }
+    ]
+  }
+]
+```
+
+---
+
+### Create a Parent Account
+
+<Note>**`POST`** `/api/padre-familias`</Note>
+
+Creates a new user account with the `padre` role and its associated parent-family record. The user is automatically scoped to the director's tenant.
+
+<ParamField body="name" type="string" required>
+  Full name of the parent.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email address. Must be unique across the `users` table.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Minimum 6 characters. Stored as a bcrypt hash.
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Contact phone number for the parent.
+</ParamField>
+
+<ParamField body="ocupacion" type="string">
+  Parent's occupation or profession.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/padre-familias \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "María López",
+    "email": "maria@example.com",
+    "password": "secret123",
+    "telefono": "555-9876",
+    "ocupacion": "Médica"
+  }'
+```
+
+**Sample response** `201 Created`
+
+```json
+{
+  "message": "Padre de familia creado correctamente",
+  "data": {
+    "id": 2,
+    "user_id": 18,
+    "telefono": "555-9876",
+    "ocupacion": "Médica",
+    "tenant_id": 1,
+    "user": {
+      "id": 18,
+      "name": "María López",
+      "email": "maria@example.com"
+    }
+  }
+}
+```
+
+---
+
+### Get a Single Parent
+
+<Note>**`GET`** `/api/padre-familias/{id}`</Note>
+
+Returns a single parent-family record with its linked user and children.
+
+<ParamField path="id" type="integer" required>
+  The ID of the parent-family record.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre-familias/2 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+---
+
+### Update a Parent Account
+
+<Note>**`PUT`** `/api/padre-familias/{id}`</Note>
+
+Partially or fully updates a parent's user account and profile data. All fields are optional; only the ones provided are changed.
+
+<ParamField path="id" type="integer" required>
+  The ID of the parent-family record to update.
+</ParamField>
+
+<ParamField body="name" type="string">
+  Updated full name.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Updated email address. Must remain unique.
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password. Minimum 6 characters. Pass only when changing.
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Updated phone number.
+</ParamField>
+
+<ParamField body="ocupacion" type="string">
+  Updated occupation.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X PUT https://your-domain.com/api/padre-familias/2 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "telefono": "555-0001",
+    "ocupacion": "Arquitecta"
+  }'
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Padre de familia actualizado correctamente",
+  "data": {
+    "id": 2,
+    "telefono": "555-0001",
+    "ocupacion": "Arquitecta",
+    "user": {
+      "id": 18,
+      "name": "María López",
+      "email": "maria@example.com"
+    }
+  }
+}
+```
+
+---
+
+### Delete a Parent Account
+
+<Note>**`DELETE`** `/api/padre-familias/{id}`</Note>
+
+Removes the parent-family record, strips the `padre` role from the associated user, deletes all student–parent relationships from the pivot table, and deletes the user account. This operation is irreversible.
+
+<ParamField path="id" type="integer" required>
+  The ID of the parent-family record to delete.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X DELETE https://your-domain.com/api/padre-familias/2 \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "message": "Padre de familia eliminado correctamente"
+}
+```
+
+---
+
+### Link a Child to a Parent
+
+<Note>**`POST`** `/api/padre-familias/asignar-estudiante`</Note>
+
+Creates a relationship between a parent-family record and a student record. Both records must belong to the same tenant. Attempting to link a student who is already assigned to the same parent returns `409 Conflict`.
+
+<ParamField body="padre_familia_id" type="integer" required>
+  The ID of the parent-family record. Must exist in the current tenant.
+</ParamField>
+
+<ParamField body="estudiante_id" type="integer" required>
+  The ID of the student record. Must exist in the current tenant.
+</ParamField>
+
+<ParamField body="parentesco" type="string">
+  Relationship type. Allowed values: `padre`, `madre`, `tutor`, `abuelo`, `otro`.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X POST https://your-domain.com/api/padre-familias/asignar-estudiante \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "padre_familia_id": 1,
+    "estudiante_id": 3,
+    "parentesco": "madre"
+  }'
+```
+
+**Sample response** `201 Created`
+
+```json
+{
+  "message": "Estudiante asignado correctamente",
+  "data": {
+    "id": 7,
+    "padre_familia_id": 1,
+    "estudiante_id": 3,
+    "parentesco": "madre"
+  }
+}
+```
+
+---
+
+### List a Parent's Children
+
+<Note>**`GET`** `/api/padre-familias/{id}/estudiantes`</Note>
+
+Returns all children linked to a given parent, along with each child's student code and the recorded relationship type.
+
+<ParamField path="id" type="integer" required>
+  The ID of the parent-family record.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre-familias/1/estudiantes \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "padre": {
+    "id": 1,
+    "nombre": "Carlos Ramírez"
+  },
+  "estudiantes": [
+    {
+      "id": 3,
+      "nombre": "Daniela Ramírez",
+      "codigo_estudiante": "EST-001",
+      "parentesco": "padre"
+    }
+  ]
+}
+```
+
+---
+
+## Parent Portal Endpoints
+
+<Note>
+  All endpoints in this section require the authenticated user to hold the **`padre`** role. Each parent can only access data for the children that have been explicitly linked to their own account.
+</Note>
+
+### List Own Children
+
+<Note>**`GET`** `/api/padre/mis-hijos`</Note>
+
+Returns the authenticated parent's profile and the full list of linked children with their student codes and relationship types.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre/mis-hijos \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "padre": {
+    "id": 1,
+    "nombre": "Carlos Ramírez"
+  },
+  "estudiantes": [
+    {
+      "id": 3,
+      "nombre": "Daniela Ramírez",
+      "codigo_estudiante": "EST-001",
+      "parentesco": "padre"
+    },
+    {
+      "id": 7,
+      "nombre": "Tomás Ramírez",
+      "codigo_estudiante": "EST-008",
+      "parentesco": "padre"
+    }
+  ]
+}
+```
+
+<ResponseField name="padre" type="object">
+  The authenticated parent's basic information.
+
+  <ResponseField name="padre.id" type="integer">
+    Internal ID of the parent-family record.
+  </ResponseField>
+  <ResponseField name="padre.nombre" type="string">
+    Display name of the parent, sourced from the linked user account.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="estudiantes" type="array">
+  Array of children linked to this parent.
+
+  <ResponseField name="estudiantes[].id" type="integer">
+    Internal ID of the student record.
+  </ResponseField>
+  <ResponseField name="estudiantes[].nombre" type="string">
+    Student's full name.
+  </ResponseField>
+  <ResponseField name="estudiantes[].codigo_estudiante" type="string">
+    The school-assigned student code.
+  </ResponseField>
+  <ResponseField name="estudiantes[].parentesco" type="string">
+    Relationship type: `padre`, `madre`, `tutor`, `abuelo`, or `otro`.
+  </ResponseField>
+</ResponseField>
+
+---
+
+### All Pending Tasks Across Children
+
+<Note>**`GET`** `/api/padre/mis-hijos/agendas`</Note>
+
+Returns a grouped list of all agenda entries (tasks and exams) for every child linked to the authenticated parent. Each element in the array corresponds to one child and includes that child's pending agenda items with attached files.
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre/mis-hijos/agendas \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "estudiante": {
+      "id": 3,
+      "nombre": "Daniela Ramírez",
+      "codigo_estudiante": "EST-001"
+    },
+    "agendas": [
+      {
+        "id": 12,
+        "titulo": "Tarea de Matemáticas",
+        "descripcion": "Ejercicios del capítulo 4",
+        "tipo": "tarea",
+        "fecha_entrega": "2026-05-10",
+        "materia": "Matemáticas",
+        "archivos": [
+          {
+            "id": 5,
+            "nombre_original": "capitulo4.pdf",
+            "url": "/storage/agendas/capitulo4.pdf"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+---
+
+### Agenda for a Specific Child
+
+<Note>**`GET`** `/api/padre/mis-hijos/{estudianteId}/agendas`</Note>
+
+Returns all agenda entries for a single child. The API verifies that the given student is actually linked to the authenticated parent before returning data; an unlinked student ID returns `403 Forbidden`.
+
+<ParamField path="estudianteId" type="integer" required>
+  The ID of the child whose agenda you want to retrieve.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre/mis-hijos/3/agendas \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "estudiante": {
+    "id": 3,
+    "nombre": "Daniela Ramírez",
+    "codigo_estudiante": "EST-001"
+  },
+  "agendas": [
+    {
+      "id": 12,
+      "titulo": "Tarea de Matemáticas",
+      "descripcion": "Ejercicios del capítulo 4",
+      "tipo": "tarea",
+      "fecha_entrega": "2026-05-10",
+      "materia": "Matemáticas",
+      "archivos": []
+    }
+  ]
+}
+```
+
+---
+
+### Grades / Report Card for a Child
+
+<Note>**`GET`** `/api/padre/mis-hijos/{estudiante}/notas`</Note>
+
+Returns the full academic report card (`boleta`) for a child, broken down by evaluation period. Within each period, every subject is listed with its weighted average. A general average across all subjects is also calculated per period. The API verifies child ownership before returning any data.
+
+<ParamField path="estudiante" type="integer" required>
+  The ID of the student.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre/mis-hijos/3/notas \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "estudiante": {
+    "id": 3,
+    "nombre": "Daniela Ramírez"
+  },
+  "periodos": [
+    {
+      "periodo": "Primer Quimestre",
+      "materias": [
+        { "materia": "Matemáticas", "promedio": 8.75 },
+        { "materia": "Lengua", "promedio": 9.10 }
+      ],
+      "promedio_general": 8.93
+    },
+    {
+      "periodo": "Segundo Quimestre",
+      "materias": [
+        { "materia": "Matemáticas", "promedio": 7.80 },
+        { "materia": "Lengua", "promedio": 9.00 }
+      ],
+      "promedio_general": 8.40
+    }
+  ]
+}
+```
+
+---
+
+### Behavioral Records (Anecdotario) for a Child
+
+<Note>**`GET`** `/api/padre/mis-hijos/{estudiante}/anecdotarios`</Note>
+
+Returns all anecdotal (behavioral observation) records filed by teachers for the given child, sorted by date descending. Each record includes the responsible teacher, the subject, and the academic period in which it was recorded.
+
+<ParamField path="estudiante" type="integer" required>
+  The ID of the student.
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET https://your-domain.com/api/padre/mis-hijos/3/anecdotarios \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "id": 4,
+    "fecha": "2026-04-15",
+    "descripcion": "Participa activamente en clase.",
+    "tipo": "positivo",
+    "estudiante_id": 3,
+    "profesor": {
+      "user": { "name": "Prof. Ana Torres" }
+    },
+    "asignacion_docente": {
+      "subject": { "name": "Ciencias Naturales" }
+    },
+    "academic_period": { "nombre": "Primer Quimestre" }
+  }
+]
+```
+
+---
+
+### Attendance Records for a Child
+
+<Note>**`GET`** `/api/padre/hijos/{estudiante}/asistencias`</Note>
+
+Returns all recorded absences (`faltas`) for the given child. Results can be filtered by subject name using the `materia` query parameter. The response also includes a deduplicated list of subjects that have at least one absence, suitable for populating a filter dropdown in a client application.
+
+<ParamField path="estudiante" type="integer" required>
+  The ID of the student.
+</ParamField>
+
+<ParamField query="materia" type="string">
+  Optional. Filter absences by subject name (exact match, case-sensitive as stored).
+</ParamField>
+
+**curl example**
+
+```bash
+curl -X GET "https://your-domain.com/api/padre/hijos/3/asistencias?materia=Matemáticas" \
+  -H "Authorization: Bearer {token}" \
+  -H "Accept: application/json"
+```
+
+**Sample response**
+
+```json
+{
+  "materias": ["Matemáticas", "Lengua"],
+  "total_faltas": 2,
+  "faltas": [
+    {
+      "fecha": "2026-04-03",
+      "materia": "Matemáticas"
+    },
+    {
+      "fecha": "2026-03-20",
+      "materia": "Matemáticas"
+    }
+  ]
+}
+```
+
+<ResponseField name="materias" type="array of strings">
+  Deduplicated list of subject names in which the student has at least one absence. Useful for building a subject filter UI.
+</ResponseField>
+
+<ResponseField name="total_faltas" type="integer">
+  Total number of absences matching the current filter (or all absences if no filter is applied).
+</ResponseField>
+
+<ResponseField name="faltas" type="array">
+  Array of individual absence records.
+
+  <ResponseField name="faltas[].fecha" type="string">
+    Date of the absence in `YYYY-MM-DD` format.
+  </ResponseField>
+  <ResponseField name="faltas[].materia" type="string">
+    Subject name for the absent session.
+  </ResponseField>
+</ResponseField>

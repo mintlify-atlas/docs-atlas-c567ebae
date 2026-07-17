@@ -1,0 +1,300 @@
+---
+title: "Track Student Attendance per Class Session"
+sidebarTitle: "Attendance"
+description: "Record, view, and update attendance in Cole. Each session links to a teacher assignment and date, with per-student states: presente, falta, justificado, tarde."
+---
+
+Cole tracks attendance at the individual class-session level. Each attendance record (`asistencia`) belongs to a specific teacher assignment and date, and contains one detail row per enrolled student. Teachers record attendance once per class day; if they need to correct an error they can replace the entire detail set through the update endpoint. This guide explains how to record, retrieve, and update attendance sessions.
+
+## Module Requirement
+
+<Warning>
+  Attendance functionality is gated behind the `asistencia` module. The `super-admin` must activate this module for the tenant before any attendance endpoints become available. Requests made without the module active will return `403 Forbidden`.
+
+  Activate the module:
+  ```bash
+  curl -X PATCH https://api.yourschool.com/api/tenants/1/modules/2/activate \
+    -H "Authorization: Bearer <super-admin-token>"
+  ```
+</Warning>
+
+All attendance endpoints require the `profesor` role in addition to the active module.
+
+---
+
+## Attendance States
+
+Every student detail record uses one of four states:
+
+| State | Meaning |
+|---|---|
+| `presente` | Student was present |
+| `falta` | Student was absent (unexcused) |
+| `justificado` | Student was absent with a valid justification |
+| `tarde` | Student arrived late |
+
+---
+
+## Recording Attendance
+
+Submit attendance for an entire class session in one request. The body must include a `fecha` (ISO date) and an `asistencias` array — one entry per student.
+
+```bash
+curl -X POST "https://api.yourschool.com/api/periodos/1/asignaciones/5/asistencia" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fecha": "2024-10-07",
+    "asistencias": [
+      {
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null
+      },
+      {
+        "estudiante_id": 102,
+        "estado": "falta",
+        "observacion": "Parent called in sick"
+      },
+      {
+        "estudiante_id": 103,
+        "estado": "tarde",
+        "observacion": "Arrived 10 minutes late"
+      },
+      {
+        "estudiante_id": 104,
+        "estado": "justificado",
+        "observacion": "Medical appointment"
+      }
+    ]
+  }'
+```
+
+**Success — `201 Created`:**
+
+```json
+{
+  "message": "Asistencia registrada correctamente",
+  "data": {
+    "id": 20,
+    "asignacion_docente_id": 5,
+    "fecha": "2024-10-07",
+    "detalles": [
+      {
+        "id": 80,
+        "asistencia_id": 20,
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null,
+        "estudiante": { "id": 101, "user": { "name": "Ana García" } }
+      },
+      {
+        "id": 81,
+        "asistencia_id": 20,
+        "estudiante_id": 102,
+        "estado": "falta",
+        "observacion": "Parent called in sick",
+        "estudiante": { "id": 102, "user": { "name": "Luis Martínez" } }
+      },
+      {
+        "id": 82,
+        "asistencia_id": 20,
+        "estudiante_id": 103,
+        "estado": "tarde",
+        "observacion": "Arrived 10 minutes late",
+        "estudiante": { "id": 103, "user": { "name": "María López" } }
+      },
+      {
+        "id": 83,
+        "asistencia_id": 20,
+        "estudiante_id": 104,
+        "estado": "justificado",
+        "observacion": "Medical appointment",
+        "estudiante": { "id": 104, "user": { "name": "Carlos Ruiz" } }
+      }
+    ]
+  }
+}
+```
+
+### Duplicate Prevention
+
+Cole prevents double-recording attendance for the same assignment on the same date. If attendance has already been submitted for that assignment + date combination, the API returns **`409 Conflict`**:
+
+```json
+{
+  "message": "Ya se registró asistencia para esta materia en esta fecha"
+}
+```
+
+If you need to make corrections, use the [update endpoint](#updating-attendance) instead.
+
+---
+
+## Viewing Attendance by Date
+
+Retrieve the attendance record for a specific class session using the assignment ID and the date in `YYYY-MM-DD` format.
+
+```bash
+curl -X GET "https://api.yourschool.com/api/periodos/1/asignaciones/5/asistencia/2024-10-07" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "id": 20,
+  "asignacion_docente_id": 5,
+  "fecha": "2024-10-07",
+  "detalles": [
+    {
+      "id": 80,
+      "estudiante_id": 101,
+      "estado": "presente",
+      "observacion": null,
+      "estudiante": { "id": 101, "user": { "name": "Ana García" } }
+    },
+    {
+      "id": 81,
+      "estudiante_id": 102,
+      "estado": "falta",
+      "observacion": "Parent called in sick",
+      "estudiante": { "id": 102, "user": { "name": "Luis Martínez" } }
+    }
+  ]
+}
+```
+
+If no attendance has been recorded for that date, the API returns **`404 Not Found`**:
+
+```json
+{
+  "message": "No hay asistencia registrada"
+}
+```
+
+---
+
+## Listing All Attendance Sessions
+
+Get a list of all recorded attendance sessions for an assignment, ordered from newest to oldest. This gives a per-date summary without the full student detail:
+
+```bash
+curl -X GET "https://api.yourschool.com/api/periodos/1/asignaciones/5/asistencia" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+[
+  {
+    "id": 22,
+    "asignacion_docente_id": 5,
+    "fecha": "2024-10-09"
+  },
+  {
+    "id": 21,
+    "asignacion_docente_id": 5,
+    "fecha": "2024-10-08"
+  },
+  {
+    "id": 20,
+    "asignacion_docente_id": 5,
+    "fecha": "2024-10-07"
+  }
+]
+```
+
+---
+
+## Updating Attendance
+
+If an error was made — a student marked absent who was actually present — use `PUT /api/asistencia/{id}` to replace all detail records for that session. The update **deletes all existing detail rows** and inserts the new ones you provide.
+
+```bash
+curl -X PUT https://api.yourschool.com/api/asistencia/20 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asistencias": [
+      {
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null
+      },
+      {
+        "estudiante_id": 102,
+        "estado": "justificado",
+        "observacion": "Doctor note received"
+      },
+      {
+        "estudiante_id": 103,
+        "estado": "presente",
+        "observacion": null
+      },
+      {
+        "estudiante_id": 104,
+        "estado": "justificado",
+        "observacion": "Medical appointment"
+      }
+    ]
+  }'
+```
+
+```json
+{
+  "message": "Asistencia actualizada",
+  "data": {
+    "id": 20,
+    "asignacion_docente_id": 5,
+    "fecha": "2024-10-07",
+    "detalles": [
+      {
+        "id": 90,
+        "estudiante_id": 101,
+        "estado": "presente",
+        "observacion": null,
+        "estudiante": { "id": 101, "user": { "name": "Ana García" } }
+      },
+      {
+        "id": 91,
+        "estudiante_id": 102,
+        "estado": "justificado",
+        "observacion": "Doctor note received",
+        "estudiante": { "id": 102, "user": { "name": "Luis Martínez" } }
+      }
+    ]
+  }
+}
+```
+
+<Warning>
+  The update endpoint replaces **all** detail records. You must include the full list of students in the request body — any student omitted will have no attendance record for that session after the update.
+</Warning>
+
+---
+
+## Parent Access
+
+Parents can view their child's attendance history through the parent portal. The module must be active and the parent must have the `padre` role:
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/hijos/101/asistencias \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+See the [Parent Portal](/guides/parent-portal) guide for the full response structure and other parent-accessible endpoints.
+
+---
+
+## Endpoint Summary
+
+<Accordion title="All Attendance Endpoints">
+
+  | Method | Endpoint | Description |
+  |---|---|---|
+  | `POST` | `/api/periodos/{periodo}/asignaciones/{asignacion}/asistencia` | Record attendance for a session |
+  | `GET` | `/api/periodos/{periodo}/asignaciones/{asignacion}/asistencia` | List all sessions for an assignment |
+  | `GET` | `/api/periodos/{periodo}/asignaciones/{asignacion}/asistencia/{fecha}` | Get a session by date |
+  | `PUT` | `/api/asistencia/{id}` | Replace all detail records for a session |
+  | `GET` | `/api/padre/hijos/{estudiante}/asistencias` | Parent: view child's attendance (`padre` role) |
+
+</Accordion>

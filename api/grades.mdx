@@ -1,0 +1,554 @@
+---
+title: "Grades API: Criteria, Grade Entry, and Gradebook"
+sidebarTitle: "Grades"
+description: "Define weighted grading criteria per evaluation period, enter grades for students, view the gradebook with computed averages, and retrieve final averages and report cards."
+---
+
+The Grades API covers the full grading workflow in Cole: directors and professors define evaluation periods within an academic period; professors then attach weighted criteria (e.g. "Quiz 20 %, Project 30 %, Final Exam 50 %") to each criterion; grades are entered per criterion per student; and the gradebook endpoint computes weighted averages automatically. Averages and report cards aggregate those results across all evaluation periods.
+
+<Note>
+  Evaluation period routes require `role:director` or `role:profesor`. All criteria, grade, gradebook, and average routes require `role:profesor` or `role:director` as indicated per section. All routes require a valid Sanctum bearer token. Criteria and grade entry routes additionally enforce professor ownership — a professor can only manage criteria and grades for their own assignments.
+</Note>
+
+---
+
+## Evaluation Periods
+
+Evaluation periods group criteria into named reporting windows (e.g. "Primer Quimestre", "Segundo Quimestre"). They are scoped to an academic period.
+
+### List Evaluation Periods
+
+```bash
+GET /api/periodos/{periodo}/periodos-evaluacion
+```
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+Returns all evaluation periods for the academic period ordered by `orden` ascending, each including its parent `academicPeriod`.
+
+**Example response** `200 OK`
+
+```json
+[
+  { "id": 1, "academic_period_id": 5, "nombre": "Primer Quimestre", "orden": 1 },
+  { "id": 2, "academic_period_id": 5, "nombre": "Segundo Quimestre", "orden": 2 }
+]
+```
+
+---
+
+### Create an Evaluation Period
+
+```bash
+POST /api/periodos/{periodo}/periodos-evaluacion
+```
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Name of the evaluation period (max 255 characters), e.g. `"Primer Quimestre"`.
+</ParamField>
+
+<ParamField body="orden" type="integer" required>
+  Sort order for this period within the academic year. Must be ≥ 1.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/periodos/5/periodos-evaluacion \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{ "nombre": "Primer Quimestre", "orden": 1 }'
+```
+
+**Example response** `201 Created`
+
+```json
+{
+  "id": 1,
+  "academic_period_id": 5,
+  "nombre": "Primer Quimestre",
+  "orden": 1,
+  "tenant_id": 3,
+  "created_at": "2026-05-01T10:00:00.000000Z",
+  "updated_at": "2026-05-01T10:00:00.000000Z"
+}
+```
+
+---
+
+## Grading Criteria
+
+Criteria represent the individual graded components within an evaluation period (e.g. "Tarea 1", "Examen Parcial"). Each criterion carries a percentage weight; the sum of all criterion percentages for one assignment within one evaluation period cannot exceed 100.
+
+<Note>
+  If adding or updating a criterion would push the total percentage above 100 for that assignment + evaluation period combination, the API returns `422 Unprocessable Entity` with the message: `"La suma de porcentajes para esta materia en este periodo no puede superar 100%"`.
+</Note>
+
+### List Criteria for an Assignment
+
+```bash
+GET /api/criterios/asignacion/{asignacionId}
+```
+
+<ParamField path="asignacionId" type="integer" required>
+  The teacher assignment ID. The authenticated professor must own this assignment.
+</ParamField>
+
+Returns all criteria for the assignment ordered by ID, each including its parent `periodoEvaluacion`.
+
+---
+
+### List Criteria by Evaluation Period
+
+```bash
+GET /api/periodos-evaluacion/{periodoId}/criterios
+```
+
+<ParamField path="periodoId" type="integer" required>
+  The evaluation period ID.
+</ParamField>
+
+Returns all criteria for that evaluation period regardless of assignment.
+
+---
+
+### List Professor's Own Criteria for an Evaluation Period
+
+Returns only the criteria belonging to the authenticated professor's assignments within the specified evaluation period.
+
+```bash
+GET /api/periodos-evaluacion/{periodo}/mis-criterios
+```
+
+<ParamField path="periodo" type="integer" required>
+  The evaluation period ID.
+</ParamField>
+
+Each criterion in the response includes the evaluation period, the subject name, course name, and parallel name for context.
+
+---
+
+### List Evaluation Periods That Have Criteria for an Assignment
+
+Returns the evaluation periods that contain at least one criterion for the given assignment, ordered by `orden`.
+
+```bash
+GET /api/asignaciones/{asignacion}/periodos-evaluacion
+```
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment ID. The authenticated professor must own this assignment.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+[
+  { "id": 1, "nombre": "Primer Quimestre", "orden": 1 },
+  { "id": 2, "nombre": "Segundo Quimestre", "orden": 2 }
+]
+```
+
+---
+
+### Create a Criterion
+
+```bash
+POST /api/criterios/asignacion/{asignacionId}
+```
+
+<ParamField path="asignacionId" type="integer" required>
+  The teacher assignment ID. Must be owned by the authenticated professor.
+</ParamField>
+
+<ParamField body="periodo_evaluacion_id" type="integer" required>
+  The evaluation period this criterion belongs to. Must exist in `periodos_evaluacion`.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Criterion name (max 255 characters), e.g. `"Tarea 1"`, `"Examen Final"`.
+</ParamField>
+
+<ParamField body="porcentaje" type="number" required>
+  Weight of this criterion as a percentage (1–100). The running total for the assignment + evaluation period combination cannot exceed 100.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/criterios/asignacion/18 \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "periodo_evaluacion_id": 1,
+    "nombre": "Examen Parcial",
+    "porcentaje": 40
+  }'
+```
+
+**Example response** `201 Created`
+
+```json
+{
+  "id": 9,
+  "asignacion_docente_id": 18,
+  "periodo_evaluacion_id": 1,
+  "nombre": "Examen Parcial",
+  "porcentaje": 40,
+  "tenant_id": 3,
+  "created_at": "2026-05-10T09:00:00.000000Z",
+  "updated_at": "2026-05-10T09:00:00.000000Z"
+}
+```
+
+---
+
+### Update a Criterion
+
+```bash
+PUT /api/criterios/{criterioId}
+```
+
+<ParamField path="criterioId" type="integer" required>
+  The criterion ID. Must belong to the authenticated professor's assignment.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Updated criterion name (max 255 characters).
+</ParamField>
+
+<ParamField body="porcentaje" type="number" required>
+  Updated percentage weight (1–100). Validation checks the sum of all **other** criteria in the same assignment + evaluation period, ensuring the total stays ≤ 100.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "id": 9,
+  "nombre": "Examen Parcial",
+  "porcentaje": 35,
+  "updated_at": "2026-05-11T10:00:00.000000Z"
+}
+```
+
+---
+
+### Delete a Criterion
+
+```bash
+DELETE /api/criterios/{criterioId}
+```
+
+<ParamField path="criterioId" type="integer" required>
+  The criterion ID. Must belong to the authenticated professor's assignment.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Criterio eliminado correctamente" }
+```
+
+---
+
+## Grade Entry
+
+Grades are entered per criterion. Each grade is a numeric value between 0 and 100. The weighted average is computed by the gradebook endpoint rather than stored — `Nota` records contain the raw score only.
+
+### List Grades for a Criterion
+
+Returns all enrolled students with their raw grade (or `null`) for the given criterion.
+
+```bash
+GET /api/criterios/{criterio}/notas
+```
+
+<ParamField path="criterio" type="integer" required>
+  The criterion ID. Must belong to the authenticated professor's assignment.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+[
+  {
+    "id": 101,
+    "nombre": "Ana Torres",
+    "nota_id": 44,
+    "nota": 87.5,
+    "observacion": null
+  },
+  {
+    "id": 102,
+    "nombre": "Luis Ramírez",
+    "nota_id": null,
+    "nota": null,
+    "observacion": null
+  }
+]
+```
+
+---
+
+### Save Grades for a Criterion
+
+Uses `updateOrCreate` internally, so this endpoint is safe to call multiple times — existing grade records are updated and new ones are created as needed. Send the full roster on each call.
+
+```bash
+POST /api/criterios/{criterio}/notas
+```
+
+<ParamField path="criterio" type="integer" required>
+  The criterion ID. Must belong to the authenticated professor's assignment.
+</ParamField>
+
+<ParamField body="notas" type="array" required>
+  Array of grade objects, one per student.
+
+  <Expandable title="notas[]">
+    <ParamField body="estudiante_id" type="integer" required>
+      Student ID. Must exist in the `estudiantes` table.
+    </ParamField>
+    <ParamField body="nota" type="number" required>
+      Numeric grade from 0 to 100 (inclusive).
+    </ParamField>
+    <ParamField body="observacion" type="string">
+      Optional note about the grade. Nullable.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/criterios/9/notas \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "notas": [
+      { "estudiante_id": 101, "nota": 87.5 },
+      { "estudiante_id": 102, "nota": 72.0, "observacion": "Mejoró en la segunda parte" },
+      { "estudiante_id": 103, "nota": 95.0 }
+    ]
+  }'
+```
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Notas guardadas correctamente" }
+```
+
+---
+
+## Gradebook
+
+### Full Gradebook — by Evaluation Period
+
+Returns the complete gradebook for one assignment scoped to one evaluation period, including all criteria columns and the weighted average per student.
+
+```bash
+GET /api/asignaciones/{asignacion}/periodos-evaluacion/{periodo}/libro-calificaciones
+```
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment ID.
+</ParamField>
+
+<ParamField path="periodo" type="integer" required>
+  The evaluation period ID.
+</ParamField>
+
+<ResponseField name="criterios" type="array">
+  Column definitions for the gradebook.
+
+  <Expandable title="criterios[]">
+    <ResponseField name="id" type="integer">Criterion ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Criterion name.</ResponseField>
+    <ResponseField name="porcentaje" type="number">Weight as a percentage.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="estudiantes" type="array">
+  One row per enrolled student.
+
+  <Expandable title="estudiantes[]">
+    <ResponseField name="estudiante_id" type="integer">Student ID.</ResponseField>
+    <ResponseField name="estudiante" type="string">Student full name.</ResponseField>
+    <ResponseField name="notas" type="array">
+      Array of criterion score entries (aligned with `criterios` above).
+
+      <Expandable title="notas[]">
+        <ResponseField name="criterio_id" type="integer">Criterion ID.</ResponseField>
+        <ResponseField name="criterio" type="string">Criterion name.</ResponseField>
+        <ResponseField name="porcentaje" type="number">Criterion weight.</ResponseField>
+        <ResponseField name="nota" type="number">Raw score (0–100). Defaults to `0` if not yet entered.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="promedio" type="number">
+      Weighted average computed as `Σ(nota × porcentaje / 100)`, rounded to 2 decimal places.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "criterios": [
+    { "id": 9,  "nombre": "Examen Parcial", "porcentaje": 40 },
+    { "id": 10, "nombre": "Proyecto Final", "porcentaje": 60 }
+  ],
+  "estudiantes": [
+    {
+      "estudiante_id": 101,
+      "estudiante": "Ana Torres",
+      "notas": [
+        { "criterio_id": 9,  "criterio": "Examen Parcial", "porcentaje": 40, "nota": 87.5 },
+        { "criterio_id": 10, "criterio": "Proyecto Final",  "porcentaje": 60, "nota": 92.0 }
+      ],
+      "promedio": 90.2
+    },
+    {
+      "estudiante_id": 102,
+      "estudiante": "Luis Ramírez",
+      "notas": [
+        { "criterio_id": 9,  "criterio": "Examen Parcial", "porcentaje": 40, "nota": 72.0 },
+        { "criterio_id": 10, "criterio": "Proyecto Final",  "porcentaje": 60, "nota": 78.0 }
+      ],
+      "promedio": 75.6
+    }
+  ]
+}
+```
+
+---
+
+### Alternative Gradebook — All Periods
+
+Returns the same gradebook structure for an assignment but across **all** evaluation periods (not filtered to one). Useful for a complete at-a-glance view.
+
+```bash
+GET /api/asignaciones/{asignacion}/libro-calificaciones
+```
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment ID.
+</ParamField>
+
+Response shape is identical to the period-scoped gradebook above.
+
+---
+
+## Averages and Report Cards
+
+<Note>
+  Average and report card endpoints are accessible to users with `role:profesor` or `role:director`.
+</Note>
+
+### Average for an Evaluation Period
+
+Returns the weighted average per student for all grades within the specified evaluation period.
+
+```bash
+GET /api/periodos-evaluacion/{periodoId}/promedio
+```
+
+<ParamField path="periodoId" type="integer" required>
+  The evaluation period ID.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+[
+  { "estudiante_id": 101, "nombre": "Ana Torres",   "promedio": 90.2 },
+  { "estudiante_id": 102, "nombre": "Luis Ramírez", "promedio": 75.6 }
+]
+```
+
+---
+
+### Final Average for a Student
+
+Computes the overall final average for a student by averaging the weighted averages across all evaluation periods in which they have grades.
+
+```bash
+GET /api/estudiantes/{estudiante}/promedio-final
+```
+
+<ParamField path="estudiante" type="integer" required>
+  The student ID.
+</ParamField>
+
+<ResponseField name="estudiante_id" type="integer">
+  The student ID.
+</ResponseField>
+
+<ResponseField name="promedio_final" type="number">
+  Final average rounded to 2 decimal places, computed as `mean(promedio_per_period)`.
+</ResponseField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "estudiante_id": 101,
+  "promedio_final": 87.65
+}
+```
+
+---
+
+### Full Report Card (Boletín) for a Student
+
+Returns the student's name, their weighted average per evaluation period, and their overall final average.
+
+```bash
+GET /api/estudiantes/{estudiante}/boletin
+```
+
+<ParamField path="estudiante" type="integer" required>
+  The student ID.
+</ParamField>
+
+<ResponseField name="estudiante" type="string">
+  Student full name.
+</ResponseField>
+
+<ResponseField name="periodos" type="array">
+  One entry per evaluation period in which the student has grades.
+
+  <Expandable title="periodos[]">
+    <ResponseField name="periodo" type="string">
+      Evaluation period name (e.g. `"Primer Quimestre"`).
+    </ResponseField>
+    <ResponseField name="promedio" type="number">
+      Weighted average for that period, rounded to 2 decimal places.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="promedio_final" type="number">
+  Arithmetic mean of all period averages, rounded to 2 decimal places.
+</ResponseField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "estudiante": "Ana Torres",
+  "periodos": [
+    { "periodo": "Primer Quimestre",  "promedio": 90.2 },
+    { "periodo": "Segundo Quimestre", "promedio": 85.1 }
+  ],
+  "promedio_final": 87.65
+}
+```

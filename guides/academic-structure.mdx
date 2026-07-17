@@ -1,0 +1,280 @@
+---
+title: "Set Up Academic Structure: Periods, Courses, and Sections"
+sidebarTitle: "Academic Structure"
+description: "Walk through creating academic periods, courses (cursos), sections (paralelos), and assigning teachers to classes in Cole."
+---
+
+Cole organizes the school year around **academic periods** (e.g., a school year or semester). Every course, section, teacher assignment, grade, and attendance record belongs to a period. This guide walks a `director` through the full hierarchy — from creating the period all the way to attaching a weekly schedule to a teacher's class assignment.
+
+<Note>
+  All endpoints below require a valid Bearer token and the `director` role unless noted. Include `Authorization: Bearer <token>` and `Content-Type: application/json` on every request.
+</Note>
+
+<Steps>
+
+  <Step title="Create an Academic Period">
+    An academic period defines the school year or term. Only one period can be active at a time.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/periodos \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "School Year 2024–2025",
+        "fecha_inicio": "2024-09-01",
+        "fecha_fin": "2025-06-30"
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "nombre": "School Year 2024–2025",
+      "fecha_inicio": "2024-09-01",
+      "fecha_fin": "2025-06-30",
+      "activo": false
+    }
+    ```
+
+    Other period operations:
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/periodos` | List all periods |
+    | `GET` | `/api/periodos/activo` | Get the currently active period |
+    | `GET` | `/api/periodos/{id}` | Get a specific period |
+    | `PUT` | `/api/periodos/{id}` | Update a period |
+    | `DELETE` | `/api/periodos/{id}` | Delete a period |
+  </Step>
+
+  <Step title="Activate the Period">
+    Activating a period marks it as the current working period. Only one period can be active at a time — Cole deactivates the previous active period automatically.
+
+    ```bash
+    curl -X PATCH https://api.yourschool.com/api/periodos/1/activar \
+      -H "Authorization: Bearer <token>"
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "nombre": "School Year 2024–2025",
+      "activo": true
+    }
+    ```
+
+    <Tip>
+      Teachers and directors can retrieve the active period at `GET /api/periodos/activo` to avoid hard-coding a period ID in their clients.
+    </Tip>
+  </Step>
+
+  <Step title="Create Courses for the Period">
+    Courses (`cursos`) represent grade levels or class groups within the period — for example, "7th Grade" or "Year 10 Sciences". Each course is scoped to an academic period.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/periodos/1/cursos \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "7th Grade",
+        "nivel": "secondary",
+        "descripcion": "Seventh grade cohort"
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "nombre": "7th Grade",
+      "nivel": "secondary",
+      "academic_period_id": 1
+    }
+    ```
+
+    Other course operations:
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/periodos/{periodo}/cursos` | List courses in a period |
+    | `GET` | `/api/periodos/{periodo}/cursos/{id}` | Get a specific course |
+    | `PUT` | `/api/periodos/{periodo}/cursos/{id}` | Update a course |
+    | `DELETE` | `/api/periodos/{periodo}/cursos/{id}` | Delete a course |
+    | `GET` | `/api/periodos/{periodo}/cursos/{id}/paralelos` | List sections for a course |
+  </Step>
+
+  <Step title="Create Sections (Paralelos)">
+    Sections (`paralelos`) are the classroom divisions within a course — e.g., "Section A", "Section B". Students are enrolled into a specific paralelo.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/paralelos \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "A",
+        "curso_id": 1
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "nombre": "A",
+      "curso_id": 1
+    }
+    ```
+
+    Other paralelo operations:
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/paralelos` | List all sections |
+    | `GET` | `/api/paralelos/{id}` | Get a specific section |
+    | `PUT` | `/api/paralelos/{id}` | Update a section |
+    | `DELETE` | `/api/paralelos/{id}` | Delete a section |
+  </Step>
+
+  <Step title="Create Subjects">
+    Subjects are the academic disciplines taught across courses — e.g., "Mathematics", "Biology". Subjects are global to the tenant and reused across periods.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/subjects \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Mathematics",
+        "codigo": "MATH-01",
+        "descripcion": "Core mathematics curriculum"
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "nombre": "Mathematics",
+      "codigo": "MATH-01"
+    }
+    ```
+
+    Other subject operations:
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/subjects` | List all subjects |
+    | `GET` | `/api/subjects/{subject}` | Get a specific subject |
+    | `PUT` | `/api/subjects/{subject}` | Update a subject |
+    | `DELETE` | `/api/subjects/{subject}` | Delete a subject |
+    | `GET` | `/api/subjects/{id}/profesores` | List teachers assigned to a subject |
+  </Step>
+
+  <Step title="Assign Teachers to Subjects">
+    Before a teacher can be scheduled for a class, they must be authorized to teach a specific subject. This creates a `profesor_subject` link.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/profesores/asignar-materia \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "profesor_id": 3,
+        "subject_id": 1
+      }'
+    ```
+
+    ```json
+    {
+      "message": "Materia asignada correctamente",
+      "profesor_id": 3,
+      "subject_id": 1
+    }
+    ```
+
+    <Tip>
+      To remove a subject from a teacher, use `POST /api/profesores/quitar-materia` with the same body shape.
+    </Tip>
+  </Step>
+
+  <Step title="Create Teacher Assignments (Asignaciones)">
+    An `asignacion` (teacher assignment) ties together a `profesor`, a `subject`, a `curso`, and a `paralelo` within a specific `periodo`. This is the record that teachers reference when entering grades and attendance.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/periodos/1/asignaciones \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "profesor_id": 3,
+        "subject_id": 1,
+        "curso_id": 1,
+        "paralelo_id": 1
+      }'
+    ```
+
+    ```json
+    {
+      "id": 5,
+      "academic_period_id": 1,
+      "profesor_id": 3,
+      "subject_id": 1,
+      "curso_id": 1,
+      "paralelo_id": 1
+    }
+    ```
+
+    Other assignment operations:
+
+    | Method | Endpoint | Description |
+    |---|---|---|
+    | `GET` | `/api/periodos/{periodo}/asignaciones` | List all assignments for a period |
+    | `GET` | `/api/periodos/{periodo}/asignaciones/{id}` | Get a specific assignment |
+    | `GET` | `/api/periodos/{periodo}/asignaciones/mis-clases` | Teacher's own classes (`profesor` role) |
+    | `GET` | `/api/periodos/{periodo}/asignaciones/materias` | Distinct subjects in a period |
+    | `GET` | `/api/periodos/{periodo}/asignaciones/profesores` | Teachers with assignments in a period |
+    | `DELETE` | `/api/periodos/{periodo}/asignaciones/{id}` | Remove an assignment |
+  </Step>
+
+  <Step title="Add a Schedule to an Assignment">
+    Attach one or more weekly time slots (`horarios`) to an assignment so that the timetable is visible to the director, teachers, and parents.
+
+    ```bash
+    curl -X POST https://api.yourschool.com/api/asignaciones/5/horarios \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "dia": "monday",
+        "hora_inicio": "08:00",
+        "hora_fin": "09:00",
+        "aula": "Room 12"
+      }'
+    ```
+
+    ```json
+    {
+      "id": 1,
+      "asignacion_docente_id": 5,
+      "dia": "monday",
+      "hora_inicio": "08:00",
+      "hora_fin": "09:00",
+      "aula": "Room 12"
+    }
+    ```
+
+    To view the full weekly timetable for a specific course section:
+
+    ```bash
+    curl -X GET "https://api.yourschool.com/api/periodos/1/cursos/1/paralelos/1/horario" \
+      -H "Authorization: Bearer <token>"
+    ```
+  </Step>
+
+</Steps>
+
+## What Comes Next
+
+With the academic structure in place, the next steps are:
+
+<CardGroup cols={2}>
+  <Card title="Grading" icon="graduation-cap" href="/guides/grading">
+    Create evaluation periods, define weighted criteria, and enter student grades.
+  </Card>
+  <Card title="Attendance" icon="clipboard-check" href="/guides/attendance">
+    Record and track daily attendance per class session.
+  </Card>
+</CardGroup>

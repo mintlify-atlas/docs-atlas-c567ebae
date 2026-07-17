@@ -1,0 +1,239 @@
+---
+title: "Tenant Modules: Feature Flags per School"
+sidebarTitle: "Modules"
+description: "Cole's module system lets super-admins enable or disable features per school. Each module gates a set of API endpoints via the CheckModule middleware."
+---
+
+Cole ships with a built-in feature-flag system called **modules**. Each module represents an optional functional area of the platform — such as attendance tracking or the academic agenda — that a `super-admin` can enable or disable independently for each school tenant. This lets platform operators roll out features incrementally, or offer different feature tiers to different schools, without any code changes.
+
+## What is a Module?
+
+A module is a named feature set identified by a short `codigo` (code key). Modules are global records in the `modules` table and are linked to individual tenants through the `tenant_modules` pivot table. The pivot carries a single boolean flag, `activo`, that controls whether the module is live for that school.
+
+```php
+// database/migrations/2026_05_18_145003_create_modules_table.php
+Schema::create('modules', function (Blueprint $table) {
+    $table->id();
+    $table->string('codigo')->unique();
+    $table->string('nombre');
+    $table->text('descripcion')->nullable();
+    $table->timestamps();
+});
+```
+
+```php
+// database/migrations/2026_05_18_145133_create_tenant_modules_table.php
+Schema::create('tenant_modules', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
+    $table->foreignId('module_id')->constrained()->cascadeOnDelete();
+    $table->boolean('activo')->default(true);
+    $table->timestamps();
+
+    $table->unique(['tenant_id', 'module_id']);
+});
+```
+
+The `Tenant` and `Module` Eloquent models are related through a `belongsToMany` that surfaces `activo` as a pivot attribute:
+
+```php
+// app/Models/Tenant.php
+public function modules()
+{
+    return $this->belongsToMany(Module::class, 'tenant_modules')
+        ->withPivot('activo')->withTimestamps();
+}
+
+// app/Models/Module.php
+public function tenants()
+{
+    return $this->belongsToMany(Tenant::class, 'tenant_modules')
+        ->withPivot('activo')->withTimestamps();
+}
+```
+
+## Available Modules
+
+The following six modules are seeded by `ModuleSeeder` using `updateOrCreate`, so re-running the seeder is safe:
+
+| Code key       | Display name        | Description                                           |
+|----------------|---------------------|-------------------------------------------------------|
+| `agenda`       | Agenda Académica    | Academic agenda and task management for students      |
+| `asistencia`   | Asistencia          | Classroom attendance recording and reporting          |
+| `circulares`   | Circulares          | School circulars and announcements sent to users      |
+| `anecdotario`  | Anecdotario         | Teacher anecdotal notes associated with students      |
+| `biblioteca`   | Biblioteca          | Library resource catalogue and lending management     |
+| `estudiantes`  | Estudiantes         | Extended student profile and enrolment management     |
+
+```php
+// database/seeders/ModuleSeeder.php
+$modules = [
+    ['codigo' => 'agenda',       'nombre' => 'Agenda Académica'],
+    ['codigo' => 'asistencia',   'nombre' => 'Asistencia'],
+    ['codigo' => 'circulares',   'nombre' => 'Circulares'],
+    ['codigo' => 'anecdotario',  'nombre' => 'Anecdotario'],
+    ['codigo' => 'biblioteca',   'nombre' => 'Biblioteca'],
+    ['codigo' => 'estudiantes',  'nombre' => 'Estudiantes'],
+];
+
+foreach ($modules as $module) {
+    Module::updateOrCreate(
+        ['codigo' => $module['codigo']],
+        $module
+    );
+}
+```
+
+## The `CheckModule` Middleware
+
+The `CheckModule` middleware enforces module access on individual routes. It accepts the module's `codigo` as a parameter and performs three checks in sequence before allowing the request to proceed.
+
+```php
+// app/Http/Middleware/CheckModule.php
+class CheckModule
+{
+    public function handle(
+        Request $request,
+        Closure $next,
+        string $moduleKey
+    ): Response {
+        $user = auth()->user();
+
+        // 1. super-admin bypasses all module checks
+        if ($user->hasRole('super-admin')) {
+            return $next($request);
+        }
+
+        // 2. User must have an associated tenant
+        $tenant = $user->tenant;
+
+        if (!$tenant) {
+            return response()->json([
+                'message' => 'Acceso denegado: usuario sin tenant asignado o tenant no encontrado.',
+            ], 404);
+        }
+
+        // 3. The module must exist and be active on the tenant's pivot
+        $module = Module::where('codigo', $moduleKey)->first();
+
+        if (!$module) {
+            return response()->json([
+                'message' => 'Módulo no encontrado o no existe.',
+            ], 404);
+        }
+
+        $activo = $tenant->modules()
+            ->where('module_id', $module->id)
+            ->wherePivot('activo', true)
+            ->exists();
+
+        if (!$activo) {
+            return response()->json([
+                'message' => 'Acceso denegado: módulo no activo o no asignado.',
+            ], 403);
+        }
+
+        return $next($request);
+    }
+}
+```
+
+<Steps>
+  <Step title="super-admin bypass">
+    If the authenticated user has the `super-admin` role, the middleware immediately calls `$next($request)` and skips all remaining checks.
+  </Step>
+  <Step title="Tenant presence check">
+    The middleware resolves `$user->tenant`. If the user has no tenant (for example, an improperly provisioned account), it returns `404` with a descriptive message.
+  </Step>
+  <Step title="Module lookup">
+    The middleware looks up the `Module` record whose `codigo` matches the parameter passed to the middleware. An unknown `codigo` returns `404`.
+  </Step>
+  <Step title="Pivot activation check">
+    The middleware queries the `tenant_modules` pivot to verify that the module is both assigned to the tenant **and** has `activo = true`. If either condition fails, a `403` is returned.
+  </Step>
+</Steps>
+
+The middleware is registered in `Kernel.php` under the alias `module`:
+
+```php
+// app/Http/Kernel.php
+protected $routeMiddleware = [
+    'module' => \App\Http\Middleware\CheckModule::class,
+    // ...
+];
+```
+
+## Applying Module Middleware to Routes
+
+Pass the module `codigo` as an argument to the `module` middleware using colon syntax:
+
+```php
+// Single route
+Route::get('/agenda', [AgendaController::class, 'index'])
+    ->middleware(['auth:sanctum', 'tenant', 'module:agenda']);
+
+// Route group
+Route::middleware(['auth:sanctum', 'tenant', 'module:asistencia'])
+    ->prefix('asistencia')
+    ->group(function () {
+        Route::get('/',      [AsistenciaController::class, 'index']);
+        Route::post('/',     [AsistenciaController::class, 'store']);
+        Route::get('/{id}',  [AsistenciaController::class, 'show']);
+    });
+```
+
+<Tip>
+  Combine `module` with `role` middleware to protect an endpoint by both feature flag and user role at the same time:
+
+  ```php
+  Route::post('/anecdotario', [AnecdotarioController::class, 'store'])
+      ->middleware(['auth:sanctum', 'tenant', 'role:director|profesor', 'module:anecdotario']);
+  ```
+</Tip>
+
+## Inactive Module Response
+
+When a tenant does not have a module assigned, or when the module exists on the tenant but `activo` is `false`, the middleware returns an HTTP `403`:
+
+```json
+{
+  "message": "Acceso denegado: módulo no activo o no asignado."
+}
+```
+
+<Warning>
+  Deactivating a module does not delete any existing data — it only blocks API access to the module's endpoints. Records created while the module was active remain intact and become accessible again if the module is reactivated.
+</Warning>
+
+## Managing Modules via the API
+
+Only a `super-admin` can assign, activate, or deactivate modules for a tenant. The relevant endpoints are under the `/api/tenants/{tenantId}/modules` prefix:
+
+| Method   | Endpoint                                                   | Description                            |
+|----------|------------------------------------------------------------|----------------------------------------|
+| `GET`    | `/api/tenants/{tenantId}/modules`                          | List all modules assigned to a tenant  |
+| `POST`   | `/api/tenants/{tenantId}/modules`                          | Assign a module to a tenant            |
+| `PATCH`  | `/api/tenants/{tenantId}/modules/{moduleId}/activate`      | Set `activo = true` on the pivot       |
+| `PATCH`  | `/api/tenants/{tenantId}/modules/{moduleId}/deactivate`    | Set `activo = false` on the pivot      |
+| `DELETE` | `/api/tenants/{tenantId}/modules/{moduleId}`               | Remove a module assignment entirely    |
+
+Example — assigning the `asistencia` module to tenant `3`:
+
+```bash
+POST /api/tenants/3/modules
+Authorization: Bearer <super-admin-token>
+Content-Type: application/json
+
+{
+  "module_id": 2
+}
+```
+
+Example — deactivating the `biblioteca` module on tenant `3`:
+
+```bash
+PATCH /api/tenants/3/modules/5/deactivate
+Authorization: Bearer <super-admin-token>
+```
+
+Refer to the **Tenants — Modules** API reference for full request and response schemas.

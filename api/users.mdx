@@ -1,0 +1,126 @@
+---
+title: "Users and Role Assignment in Cole"
+sidebarTitle: "Users"
+description: "Users in Cole are created through resource-specific endpoints. Learn how user accounts relate to roles, tenants, and resource profiles."
+---
+
+Cole does not expose a generic `/users` CRUD endpoint. Instead, user accounts are created **implicitly** as a side effect of provisioning higher-level resources — a school, a professor profile, a student, or a parent. This design keeps user creation tightly coupled to the resource it represents, ensuring that every account is always associated with a role and, where applicable, a tenant.
+
+---
+
+## How users are created
+
+Each user type in Cole is created through its own dedicated endpoint. The table below maps each role to the resource endpoint that creates it:
+
+| Role | Created by | Endpoint |
+|---|---|---|
+| `super-admin` | Manual registration | `POST /api/auth/register` |
+| `director` | Tenant provisioning | `POST /api/tenants` |
+| `profesor` | Professor creation | `POST /api/profesores` |
+| `estudiante` | Student creation | `POST /api/estudiantes` |
+| `padre` | Parent creation | `POST /api/padres` |
+
+In every case, the underlying operation is the same: a `User` record is created in the `users` table, `assignRole()` is called with the appropriate role name via the [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission) package, and the new user's `token` (where applicable) or credentials are returned to the caller.
+
+---
+
+## The User model
+
+The `User` model (`app/Models/User.php`) uses the `HasRoles` trait from Spatie Permission and the `HasApiTokens` trait from Laravel Sanctum. Its fillable fields are:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Auto-incrementing primary key. |
+| `name` | string | Display name. |
+| `email` | string | Unique email address used for login. |
+| `password` | string | bcrypt-hashed password. Never returned in API responses. |
+| `tenant_id` | integer \| null | Foreign key to the `tenants` table. `null` for `super-admin` accounts, which are platform-wide. |
+| `created_at` | timestamp | Record creation time. |
+| `updated_at` | timestamp | Last modification time. |
+
+The `password` and `remember_token` fields are listed in the model's `$hidden` array and are **never returned** in any API response.
+
+---
+
+## Roles
+
+Cole defines five roles, managed by Spatie Permission:
+
+| Role | Scope | Description |
+|---|---|---|
+| `super-admin` | Platform-wide | Can create and delete tenants, manage all modules. Not attached to any tenant. |
+| `director` | Tenant-scoped | Manages their own school: academic periods, professors, students, parents, courses. |
+| `profesor` | Tenant-scoped | Access to assigned courses, grades, attendance, and schedules. |
+| `estudiante` | Tenant-scoped | Can view their own enrollments, grades, and attendance. |
+| `padre` | Tenant-scoped | Can view information about their linked students. |
+
+Roles are assigned at creation time via `$user->assignRole($roleName)` and are not changed through any API endpoint after the fact. To retrieve the roles of the currently authenticated user, use [`GET /api/auth/me`](/api/auth#get-apiauthme).
+
+<Note>
+  Role checks are enforced with the `role:` middleware (from Spatie Permission). Requests made by a user who lacks the required role receive a `403 Forbidden` response automatically.
+</Note>
+
+---
+
+## Tenant association
+
+All users except `super-admin` are associated with a tenant through the `tenant_id` column. This column is set at creation time and is never changed via the API. When a director calls a scoped endpoint (for example, `GET /api/periodos`), Cole resolves the correct tenant automatically using `auth()->user()->tenant_id` — no tenant ID needs to be passed in the request.
+
+The `User` model exposes a `tenant()` relationship:
+
+```php
+public function tenant()
+{
+    return $this->belongsTo(Tenant::class);
+}
+```
+
+---
+
+## Resource profile relationships
+
+Beyond the base `User` record, three roles have a corresponding **profile model** with additional domain-specific data. The `User` model defines these as `hasOne` relationships:
+
+| Role | Profile model | Relationship |
+|---|---|---|
+| `profesor` | `Profesor` | `$user->profesor` |
+| `estudiante` | `Estudiante` | `$user->estudiante` |
+| `padre` | `PadreFamilia` | `$user->padreFamilia` |
+
+The `director` role has no separate profile model — the director's identity is fully captured by the `User` record and the tenant they own.
+
+---
+
+## Retrieving the authenticated user
+
+Once a client holds a valid Sanctum token, it can fetch the authenticated user's full profile and role list at any time:
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/auth/me \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "user": {
+    "id": 5,
+    "name": "Carlos Mendoza",
+    "email": "carlos@lincoln.edu",
+    "tenant_id": 3,
+    "created_at": "2026-04-02T10:15:00.000000Z",
+    "updated_at": "2026-04-02T10:15:00.000000Z"
+  },
+  "roles": ["director"]
+}
+```
+
+For full details on all authentication endpoints, see the [Authentication API](/api/auth) reference.
+
+---
+
+## Related pages
+
+- [Authentication API](/api/auth) — login, register, logout, and `/me`
+- [Tenants API](/api/tenants) — creating tenants and their associated director accounts
+- [Academic Periods API](/api/academic-periods) — tenant-scoped resources requiring an authenticated director or professor

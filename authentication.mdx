@@ -1,0 +1,394 @@
+---
+title: "Authenticate with Cole API using Sanctum tokens"
+sidebarTitle: "Authentication"
+description: "Cole uses Laravel Sanctum Bearer tokens. Learn how to obtain a token via login, pass it in requests, and handle logout and token rotation."
+---
+
+Cole protects its API using [Laravel Sanctum](https://laravel.com/docs/9.x/sanctum) personal access tokens. When you register or log in, the API returns a plain-text Bearer token that you include in the `Authorization` header of every subsequent request. There are no cookies, no sessions, and no OAuth flows — just a token that travels with every call. Tokens are stored hashed in the `personal_access_tokens` table and are invalidated immediately on logout or on the next login (token rotation).
+
+## How Authentication Works
+
+1. Call `POST /api/auth/register` or `POST /api/auth/login` to obtain a token.
+2. Store the token securely on the client (e.g. in memory or a secure storage mechanism — never in `localStorage` for sensitive deployments).
+3. Include the token in every protected request as `Authorization: Bearer {token}`.
+4. On logout, the current token is deleted server-side and becomes immediately invalid.
+5. On the next login, **all existing tokens for that user are deleted** before a new one is issued, ensuring only one active session per user at any time.
+
+<Note>
+  All auth endpoints are prefixed with `/api/auth`. Requests must include an `Accept: application/json` header to receive JSON error responses instead of HTML redirects.
+</Note>
+
+---
+
+## POST /api/auth/register
+
+Creates a new user account, assigns the specified role, and returns a Bearer token. The user is active immediately — no email verification step is required.
+
+### Request Parameters
+
+<ParamField body="name" type="string" required>
+  The full display name of the user. Maximum 255 characters.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  A valid, unique email address. Used as the login identifier. Maximum 255 characters.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's password. Minimum 6 characters. Stored as a bcrypt hash — never in plain text.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  The role to assign to the new user. Must be one of: `super-admin`, `director`, `profesor`, `estudiante`, `padre`. Validated against the `roles` table — run `RoleSeeder` before registering any users.
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -s -X POST https://your-cole-app.com/api/auth/register \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "María López",
+    "email": "maria@escuela.edu",
+    "password": "contraseña123",
+    "role": "director"
+  }'
+```
+
+```php PHP (Guzzle)
+<?php
+
+use GuzzleHttp\Client;
+
+$client = new Client(['base_uri' => 'https://your-cole-app.com']);
+
+$response = $client->post('/api/auth/register', [
+    'json' => [
+        'name'     => 'María López',
+        'email'    => 'maria@escuela.edu',
+        'password' => 'contraseña123',
+        'role'     => 'director',
+    ],
+    'headers' => [
+        'Accept' => 'application/json',
+    ],
+]);
+
+$data = json_decode((string) $response->getBody(), true);
+$token = $data['token'];
+```
+
+</CodeGroup>
+
+### Response — 201 Created
+
+<ResponseField name="message" type="string">
+  A confirmation string: `"Usuario registrado correctamente"`.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The newly created user object.
+
+  <Expandable title="user fields">
+    <ResponseField name="user.id" type="integer">
+      Auto-incremented primary key of the user.
+    </ResponseField>
+    <ResponseField name="user.name" type="string">
+      The display name provided at registration.
+    </ResponseField>
+    <ResponseField name="user.email" type="string">
+      The email address provided at registration.
+    </ResponseField>
+    <ResponseField name="user.created_at" type="string">
+      ISO 8601 timestamp of when the account was created.
+    </ResponseField>
+    <ResponseField name="user.updated_at" type="string">
+      ISO 8601 timestamp of the last update to the user record.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  An array of role name strings assigned to this user, e.g. `["director"]`.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  The plain-text Sanctum Bearer token. This is the only time the plain-text token is returned — store it immediately.
+</ResponseField>
+
+```json
+{
+  "message": "Usuario registrado correctamente",
+  "user": {
+    "id": 5,
+    "name": "María López",
+    "email": "maria@escuela.edu",
+    "created_at": "2024-03-01T09:15:00.000000Z",
+    "updated_at": "2024-03-01T09:15:00.000000Z"
+  },
+  "roles": ["director"],
+  "token": "2|xK9mP3qRtYvWzNjLeHgBsOiCdAuF..."
+}
+```
+
+---
+
+## POST /api/auth/login
+
+Authenticates an existing user by email and password. **All previously issued tokens for the user are deleted** before a new token is created — Cole enforces a single active session per user.
+
+### Request Parameters
+
+<ParamField body="email" type="string" required>
+  The email address used when the account was registered.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password in plain text. Compared against the stored bcrypt hash.
+</ParamField>
+
+<Note>
+  **Token rotation:** every successful login calls `$user->tokens()->delete()` before issuing a fresh token. If you have multiple clients (e.g. a web app and a mobile app) sharing the same user account, logging in on one will immediately invalidate the token held by the other.
+</Note>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -s -X POST https://your-cole-app.com/api/auth/login \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "maria@escuela.edu",
+    "password": "contraseña123"
+  }'
+```
+
+```php PHP (Guzzle)
+<?php
+
+use GuzzleHttp\Client;
+
+$client = new Client(['base_uri' => 'https://your-cole-app.com']);
+
+$response = $client->post('/api/auth/login', [
+    'json' => [
+        'email'    => 'maria@escuela.edu',
+        'password' => 'contraseña123',
+    ],
+    'headers' => [
+        'Accept' => 'application/json',
+    ],
+]);
+
+$data  = json_decode((string) $response->getBody(), true);
+$token = $data['token'];
+```
+
+</CodeGroup>
+
+### Response — 200 OK
+
+<ResponseField name="message" type="string">
+  A confirmation string: `"Login exitoso"`.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The authenticated user object (same shape as the register response).
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  An array of role name strings currently assigned to the user.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  A freshly issued plain-text Sanctum Bearer token. All previous tokens for this user have been revoked.
+</ResponseField>
+
+```json
+{
+  "message": "Login exitoso",
+  "user": {
+    "id": 5,
+    "name": "María López",
+    "email": "maria@escuela.edu",
+    "created_at": "2024-03-01T09:15:00.000000Z",
+    "updated_at": "2024-03-01T09:15:00.000000Z"
+  },
+  "roles": ["director"],
+  "token": "3|hN7rTyUqWsXvZmLkGfJdCpAiBoEn..."
+}
+```
+
+---
+
+## GET /api/auth/me
+
+Returns the profile and roles of the currently authenticated user. Requires a valid Bearer token. This endpoint is the fastest way to verify that a token is still active.
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -s https://your-cole-app.com/api/auth/me \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 3|hN7rTyUqWsXvZmLkGfJdCpAiBoEn..."
+```
+
+```php PHP (Guzzle)
+<?php
+
+$response = $client->get('/api/auth/me', [
+    'headers' => [
+        'Accept'        => 'application/json',
+        'Authorization' => "Bearer {$token}",
+    ],
+]);
+
+$data = json_decode((string) $response->getBody(), true);
+echo $data['user']['name']; // María López
+```
+
+</CodeGroup>
+
+### Response — 200 OK
+
+<ResponseField name="user" type="object">
+  The authenticated user's record from the database.
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  The list of roles currently assigned to this user.
+</ResponseField>
+
+```json
+{
+  "user": {
+    "id": 5,
+    "name": "María López",
+    "email": "maria@escuela.edu",
+    "created_at": "2024-03-01T09:15:00.000000Z",
+    "updated_at": "2024-03-01T09:15:00.000000Z"
+  },
+  "roles": ["director"]
+}
+```
+
+---
+
+## POST /api/auth/logout
+
+Revokes the **current** access token only. Other active tokens (issued to other devices, if any) are not affected. The endpoint requires a valid Bearer token — you cannot log out without one.
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -s -X POST https://your-cole-app.com/api/auth/logout \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 3|hN7rTyUqWsXvZmLkGfJdCpAiBoEn..."
+```
+
+```php PHP (Guzzle)
+<?php
+
+$client->post('/api/auth/logout', [
+    'headers' => [
+        'Accept'        => 'application/json',
+        'Authorization' => "Bearer {$token}",
+    ],
+]);
+
+// Token is now invalid — discard it from your client storage
+```
+
+</CodeGroup>
+
+### Response — 200 OK
+
+```json
+{
+  "message": "Logout correcto"
+}
+```
+
+<Warning>
+  After a successful logout, the token is deleted from the database. Any subsequent request using that token will receive a **401 Unauthenticated** response. Discard the token on the client side immediately after calling this endpoint.
+</Warning>
+
+---
+
+## Passing the Token
+
+Every protected endpoint in Cole requires the Bearer token in the HTTP `Authorization` header. The format is always:
+
+```
+Authorization: Bearer {your_token}
+```
+
+A complete example with all recommended headers:
+
+```http
+GET /api/auth/me HTTP/1.1
+Host: your-cole-app.com
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer 3|hN7rTyUqWsXvZmLkGfJdCpAiBoEn...
+```
+
+<Tip>
+  Always include `Accept: application/json` alongside the `Authorization` header. Without it, Laravel may return an HTML redirect (302) instead of a JSON error when the token is missing or invalid.
+</Tip>
+
+---
+
+## Error Handling
+
+Cole returns standard HTTP status codes alongside JSON error bodies for all auth failures.
+
+### 401 Unauthenticated
+
+Returned when a protected endpoint is called without a token, with a malformed token, or with a token that has been revoked.
+
+```json
+{
+  "message": "Unauthenticated."
+}
+```
+
+### 422 Unprocessable Content
+
+Returned when request body validation fails. The `errors` object keys map to the invalid field names.
+
+**Invalid credentials on login:**
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "email": ["Credenciales incorrectas"]
+  }
+}
+```
+
+**Missing or invalid fields on register:**
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "email": ["The email has already been taken."],
+    "role": ["The selected role is invalid."]
+  }
+}
+```
+
+<Note>
+  The `"The selected role is invalid."` error on the `role` field most commonly means `RoleSeeder` has not been run yet, or the value passed does not exactly match one of: `super-admin`, `director`, `profesor`, `estudiante`, `padre`.
+</Note>

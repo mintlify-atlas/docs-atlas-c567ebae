@@ -1,0 +1,185 @@
+---
+title: "Multi-Tenancy in Cole: Isolated School Accounts"
+sidebarTitle: "Multi-Tenancy"
+description: "Each school in Cole is a tenant. All data is isolated automatically using the BelongsToTenant trait and global Eloquent scopes."
+---
+
+Cole is a multi-tenant platform where every school operates as a fully isolated account called a **tenant**. Whether you are managing attendance records, agenda entries, or student data, every piece of information belongs to exactly one tenant and is never visible to another. This isolation is enforced at the database query level automatically — no manual filtering is required from controllers or services.
+
+## What is a Tenant?
+
+A tenant represents a single school registered in Cole. It is identified by a numeric `id` and a human-readable `slug`. Every user, teacher, student, and resource created inside the platform belongs to one tenant.
+
+The `tenants` table stores three identifying fields:
+
+| Column      | Type      | Description                              |
+|-------------|-----------|------------------------------------------|
+| `id`        | integer   | Auto-incremented primary key             |
+| `name`      | string    | Display name of the school               |
+| `slug`      | string    | Unique URL-safe identifier               |
+| `is_active` | boolean   | Whether the tenant account is enabled    |
+
+```php
+// database/migrations/2026_04_01_173009_create_tenants_table.php
+Schema::create('tenants', function (Blueprint $table) {
+    $table->id();
+    $table->string('name');        // nombre del colegio
+    $table->string('slug')->unique(); // identificador
+    $table->boolean('is_active')->default(true);
+    $table->timestamps();
+});
+```
+
+The `Tenant` Eloquent model exposes its enabled modules through a `belongsToMany` relationship that also carries the `activo` pivot flag:
+
+```php
+// app/Models/Tenant.php
+class Tenant extends Model
+{
+    protected $fillable = ['name', 'slug', 'logo'];
+
+    public function modules()
+    {
+        return $this->belongsToMany(Module::class, 'tenant_modules')
+            ->withPivot('activo')->withTimestamps();
+    }
+}
+```
+
+## The `BelongsToTenant` Trait
+
+The `BelongsToTenant` trait is the cornerstone of data isolation in Cole. Any Eloquent model that uses this trait receives two automatic behaviours registered in the `booted()` lifecycle hook.
+
+```php
+// app/Traits/BelongsToTenant.php
+trait BelongsToTenant
+{
+    protected static function booted()
+    {
+        // Auto asignar tenant
+        static::creating(function ($model) {
+            if (auth()->check()) {
+                $model->tenant_id = auth()->user()->tenant_id;
+            }
+        });
+
+        // Scope global
+        static::addGlobalScope('tenant', function (Builder $builder) {
+            if (auth()->check()) {
+                $model = $builder->getModel();
+
+                $builder->where(
+                    $model->getTable() . '.tenant_id',
+                    auth()->user()->tenant_id
+                );
+            }
+        });
+    }
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="Auto-assign on create" icon="pen-to-square">
+    When a new record is saved, the `creating` hook automatically sets `tenant_id` from the authenticated user. No controller needs to pass it manually.
+  </Card>
+  <Card title="Global query scope" icon="filter">
+    A global Eloquent scope named `tenant` appends a `WHERE tenant_id = ?` clause to every query on the model, using the authenticated user's `tenant_id`.
+  </Card>
+</CardGroup>
+
+<Note>
+  Both behaviours are conditional on `auth()->check()`. Unauthenticated contexts — such as seeders or console commands — are unaffected and can operate across all tenants freely.
+</Note>
+
+## `TenantMiddleware`
+
+The `TenantMiddleware` runs on every authenticated API route and binds the current user's `tenant_id` into Laravel's IoC container. This makes the tenant context available to any service-layer code that needs it outside of Eloquent models.
+
+```php
+// app/Http/Middleware/TenantMiddleware.php
+class TenantMiddleware
+{
+    public function handle(Request $request, Closure $next)
+    {
+        if (!auth()->check()) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $tenantId = auth()->user()->tenant_id;
+        app()->instance('tenant_id', $tenantId);
+        return $next($request);
+    }
+}
+```
+
+The middleware is registered in `Kernel.php` under the alias `tenant` and is applied to protected route groups:
+
+```php
+// app/Http/Kernel.php
+protected $routeMiddleware = [
+    'tenant' => \App\Http\Middleware\TenantMiddleware::class,
+    // ...
+];
+```
+
+<Tip>
+  You can resolve the tenant ID anywhere in the application using `app('tenant_id')` after this middleware has run.
+</Tip>
+
+## Tenant-Scoped Models
+
+Every model listed below uses the `BelongsToTenant` trait. All queries against these models are automatically filtered to the authenticated user's tenant, and all new records are automatically stamped with that tenant's `id`.
+
+| Model                | Resource description                         |
+|----------------------|----------------------------------------------|
+| `AcademicPeriod`     | Academic year / period definitions           |
+| `Agenda`             | Academic agenda entries                      |
+| `AgendaArchivo`      | File attachments on agenda items             |
+| `Anecdotario`        | Teacher anecdotal notes on students          |
+| `AsignacionDocente`  | Teacher-to-course assignments                |
+| `Asistencia`         | Attendance records                           |
+| `Circular`           | School circulars / announcements             |
+| `Criterio`           | Grading criteria                             |
+| `Curso`              | Courses / subjects                           |
+| `EntregaTarea`       | Student task submissions                     |
+| `EntregaTareaArchivo`| Files attached to task submissions           |
+| `Estudiante`         | Student profiles                             |
+| `HorarioAsignacion`  | Schedule assignments                         |
+| `Inscripcion`        | Course enrolments                            |
+| `Nota`               | Student grades                               |
+| `PadreEstudiante`    | Parent-to-student relationship records       |
+| `PadreFamilia`       | Parent / guardian profiles                   |
+| `Paralelo`           | Class sections / parallels                   |
+| `PeriodoEvaluacion`  | Evaluation periods                           |
+| `Profesor`           | Teacher profiles                             |
+| `ProfesorSubject`    | Teacher-to-subject assignments               |
+| `Subject`            | Subject definitions                          |
+
+<Warning>
+  If you build a new Eloquent model that holds school-specific data, add `use BelongsToTenant;` to it. Without the trait, records from all tenants will be visible to every authenticated user.
+</Warning>
+
+## Super-Admin and Cross-Tenant Access
+
+The `super-admin` role is the only role whose `tenant_id` is `null`. Because the global scope and the auto-assign hook only activate when `auth()->check()` is `true` **and** the user has a non-null `tenant_id`, a super-admin can query across all tenants without restriction.
+
+<Note>
+  The `CheckModule` middleware also short-circuits for `super-admin` users, granting them access to every module endpoint regardless of a tenant's module configuration. See [Modules](/concepts/modules) for details.
+</Note>
+
+## Creating a Tenant
+
+Tenants are created by a `super-admin` via the Tenants API:
+
+```bash
+POST /api/tenants
+Authorization: Bearer <super-admin-token>
+Content-Type: application/json
+
+{
+  "name": "Colegio San Andrés",
+  "slug": "san-andres"
+}
+```
+
+Refer to the **Tenants** API reference for the full request schema, validation rules, and response format.

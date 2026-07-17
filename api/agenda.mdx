@@ -1,0 +1,546 @@
+---
+title: "Agenda API: Assignments, Files, and Student Submissions"
+sidebarTitle: "Agenda"
+description: "Create academic agenda items (tasks/assignments) per teacher assignment, attach files, and manage student submission tracking."
+---
+
+The Agenda API allows teachers to create and manage academic agenda items — tasks, exams, and resources — scoped to a specific teacher assignment within an academic period. Each agenda item can have multiple file attachments, and students can submit their work directly through the platform. Teachers can view a per-item submission roster showing which students have delivered their work and which are still pending.
+
+<Note>
+  All agenda and submission endpoints require a valid Sanctum bearer token. Teacher-facing routes additionally require the `role:profesor` middleware and the **`module:agenda`** feature module to be active for the tenant. Student submission routes require `role:estudiante`. The teacher submission-detail view requires `role:profesor` (no module check).
+</Note>
+
+---
+
+## Agenda Endpoints (Professor)
+
+### List Agenda Items
+
+<ParamField path="periodo" type="integer" required>
+  The academic period ID.
+</ParamField>
+
+<ParamField path="asignacion" type="integer" required>
+  The teacher assignment (`asignacion_docente`) ID scoped to the given period.
+</ParamField>
+
+Returns all agenda items for the assignment in descending creation order, each including attached files and assignment context (subject, teacher, course, parallel).
+
+```bash
+GET /api/periodos/{periodo}/asignaciones/{asignacion}/agenda
+```
+
+**Example response**
+
+```json
+[
+  {
+    "id": 12,
+    "titulo": "Tarea de álgebra lineal",
+    "descripcion": "Resolver ejercicios 1–10 del capítulo 3.",
+    "tipo": "tarea",
+    "fecha_entrega": "2026-06-15T23:59:00.000000Z",
+    "materia": "Matemáticas",
+    "profesor": "Carlos Mendoza",
+    "curso": "Primero de Bachillerato",
+    "paralelo": "A",
+    "archivos": [
+      {
+        "id": 3,
+        "nombre_original": "ejercicios_cap3.pdf",
+        "url": "/storage/agendas/1716924000_ejercicios_cap3.pdf"
+      }
+    ]
+  }
+]
+```
+
+---
+
+### Create an Agenda Item
+
+```bash
+POST /api/periodos/{periodo}/asignaciones/{asignacion}/agenda
+```
+
+<ParamField body="titulo" type="string" required>
+  Title of the agenda item (max 255 characters).
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Full description or instructions for the task. Nullable.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Item type. Accepted values: `tarea`, `examen`, `recurso`. Only `tarea` and `examen` accept student submissions.
+</ParamField>
+
+<ParamField body="fecha_entrega" type="string (date)">
+  Due date and time (ISO 8601). Nullable.
+</ParamField>
+
+<ParamField body="archivo" type="string">
+  Legacy single-file string reference. Use the dedicated upload endpoint for multi-file support.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/periodos/5/asignaciones/18/agenda \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Tarea de álgebra lineal",
+    "descripcion": "Resolver ejercicios 1–10 del capítulo 3.",
+    "tipo": "tarea",
+    "fecha_entrega": "2026-06-15 23:59:00"
+  }'
+```
+
+**Example response** `201 Created`
+
+```json
+{
+  "message": "Agenda creada correctamente",
+  "data": {
+    "id": 12,
+    "asignacion_docente_id": 18,
+    "titulo": "Tarea de álgebra lineal",
+    "descripcion": "Resolver ejercicios 1–10 del capítulo 3.",
+    "tipo": "tarea",
+    "fecha_entrega": "2026-06-15 23:59:00",
+    "archivo": null,
+    "created_at": "2026-05-28T14:00:00.000000Z",
+    "updated_at": "2026-05-28T14:00:00.000000Z"
+  }
+}
+```
+
+---
+
+### Get a Single Agenda Item
+
+```bash
+GET /api/agenda/{id}
+```
+
+<ParamField path="id" type="integer" required>
+  The agenda item ID.
+</ParamField>
+
+Returns the full item with its attached files and assignment metadata.
+
+---
+
+### Update an Agenda Item
+
+```bash
+PUT /api/agenda/{id}
+```
+
+<ParamField path="id" type="integer" required>
+  The agenda item ID to update.
+</ParamField>
+
+<ParamField body="titulo" type="string" required>
+  Updated title (max 255 characters).
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Updated description. Nullable.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Updated type: `tarea`, `examen`, or `recurso`.
+</ParamField>
+
+<ParamField body="fecha_entrega" type="string (date)">
+  Updated due date. Nullable.
+</ParamField>
+
+<ParamField body="archivo" type="string">
+  Updated single-file reference. Nullable.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Agenda actualizada",
+  "data": { "id": 12, "titulo": "Tarea de álgebra lineal (actualizada)", "..." : "..." }
+}
+```
+
+---
+
+### Delete an Agenda Item
+
+```bash
+DELETE /api/agenda/{id}
+```
+
+<ParamField path="id" type="integer" required>
+  The agenda item ID to delete.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Agenda eliminada correctamente" }
+```
+
+---
+
+## File Attachment Endpoints
+
+### Upload File Attachments
+
+Uploads one or more files to an agenda item. Files are stored under the `agendas/` directory in the `public` disk (max 20 MB each).
+
+```bash
+POST /api/agenda/{id}/subir-archivo
+Content-Type: multipart/form-data
+```
+
+<ParamField path="id" type="integer" required>
+  The agenda item ID to attach files to.
+</ParamField>
+
+<ParamField body="archivos" type="file[]" required>
+  Array of files. Each file must be a valid upload and cannot exceed 20 MB (`max:20480`).
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/agenda/12/subir-archivo \
+  -H "Authorization: Bearer {token}" \
+  -F "archivos[]=@/path/to/ejercicios.pdf" \
+  -F "archivos[]=@/path/to/hoja_respuestas.docx"
+```
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Archivos subidos correctamente",
+  "archivos": [
+    {
+      "id": 7,
+      "archivo": "agendas/1716924001_ejercicios.pdf",
+      "nombre_original": "ejercicios.pdf",
+      "url": "/storage/agendas/1716924001_ejercicios.pdf"
+    },
+    {
+      "id": 8,
+      "archivo": "agendas/1716924001_hoja_respuestas.docx",
+      "nombre_original": "hoja_respuestas.docx",
+      "url": "/storage/agendas/1716924001_hoja_respuestas.docx"
+    }
+  ]
+}
+```
+
+---
+
+### Delete a File Attachment
+
+Permanently removes a file from storage and deletes its database record.
+
+```bash
+DELETE /api/agenda-archivos/{id}
+```
+
+<ParamField path="id" type="integer" required>
+  The `AgendaArchivo` record ID to delete.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Archivo eliminado correctamente" }
+```
+
+---
+
+### Replace a File Attachment
+
+Deletes the existing file from disk and replaces it with a new upload. Accepted MIME types: `pdf`, `doc`, `docx`, `png`, `jpg`, `jpeg`. Maximum size: 10 MB.
+
+```bash
+POST /api/agenda-archivos/{id}/reemplazar
+Content-Type: multipart/form-data
+```
+
+<ParamField path="id" type="integer" required>
+  The `AgendaArchivo` record ID to replace.
+</ParamField>
+
+<ParamField body="archivo" type="file" required>
+  The replacement file. Allowed types: `pdf`, `doc`, `docx`, `png`, `jpg`, `jpeg`. Max 10 MB.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Archivo reemplazado correctamente",
+  "data": {
+    "id": 7,
+    "nombre_original": "ejercicios_v2.pdf",
+    "url": "/storage/agendas/1716924500_ejercicios_v2.pdf"
+  }
+}
+```
+
+---
+
+## Submission Roster (Professor)
+
+### List Student Submissions for an Agenda Item
+
+Returns every enrolled student in the class alongside their submission status for the given agenda item.
+
+```bash
+GET /api/agenda/{agenda}/entregas
+```
+
+<ParamField path="agenda" type="integer" required>
+  The agenda item ID.
+</ParamField>
+
+<ResponseField name="tipo" type="string">
+  The agenda item type (`tarea`, `examen`, `recurso`).
+</ResponseField>
+
+<ResponseField name="titulo" type="string">
+  Title of the agenda item.
+</ResponseField>
+
+<ResponseField name="entregas" type="array">
+  Array of enrollment records, one per enrolled student.
+
+  <Expandable title="entregas[]">
+    <ResponseField name="estudiante_id" type="integer">
+      Student's database ID.
+    </ResponseField>
+    <ResponseField name="nombre" type="string">
+      Student's full name.
+    </ResponseField>
+    <ResponseField name="codigo" type="string">
+      Student's enrollment code.
+    </ResponseField>
+    <ResponseField name="estado" type="string">
+      `entregado` if the student has submitted, `pendiente` otherwise.
+    </ResponseField>
+    <ResponseField name="entrega_id" type="integer | null">
+      The submission ID if `estado` is `entregado`; `null` otherwise.
+    </ResponseField>
+    <ResponseField name="fecha_entrega" type="string | null">
+      ISO 8601 timestamp of the submission; `null` if not yet submitted.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Example response**
+
+```json
+{
+  "tipo": "tarea",
+  "titulo": "Tarea de álgebra lineal",
+  "entregas": [
+    {
+      "estudiante_id": 101,
+      "nombre": "Ana Torres",
+      "codigo": "2026-0101",
+      "estado": "entregado",
+      "entrega_id": 55,
+      "fecha_entrega": "2026-06-14T20:30:00.000000Z"
+    },
+    {
+      "estudiante_id": 102,
+      "nombre": "Luis Ramírez",
+      "codigo": "2026-0102",
+      "estado": "pendiente",
+      "entrega_id": null,
+      "fecha_entrega": null
+    }
+  ]
+}
+```
+
+---
+
+## Student Submission Endpoints
+
+<Note>
+  The following routes require `role:estudiante`. The authenticated student's identity is resolved automatically from the bearer token — no `estudiante_id` parameter is needed in the URL.
+</Note>
+
+### View Own Submission
+
+Returns the authenticated student's submission for a given agenda item, including any uploaded files. Returns `null` if no submission exists yet.
+
+```bash
+GET /api/estudiante/tareas/{agenda}/entrega
+```
+
+<ParamField path="agenda" type="integer" required>
+  The agenda item ID.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "id": 55,
+  "comentario": "Adjunto mis respuestas en PDF.",
+  "fecha_entrega": "2026-06-14T20:30:00.000000Z",
+  "estado": "entregado",
+  "archivos": [
+    {
+      "id": 21,
+      "nombre_original": "tarea_ana.pdf",
+      "url": "/storage/entregas/1718394600_tarea_ana.pdf"
+    }
+  ]
+}
+```
+
+---
+
+### Submit a Task
+
+Creates a new submission record for the authenticated student. This endpoint uses `firstOrCreate`, so calling it multiple times for the same `agenda_id` is idempotent — duplicate submissions are not created.
+
+<Note>
+  Only agenda items with `tipo` equal to `tarea` or `examen` accept submissions. Attempting to submit against a `recurso` item returns `400 Bad Request`.
+</Note>
+
+```bash
+POST /api/estudiante/tareas/{agenda}/entrega
+```
+
+<ParamField path="agenda" type="integer" required>
+  The agenda item ID to submit against.
+</ParamField>
+
+<ParamField body="comentario" type="string">
+  An optional text comment accompanying the submission. Nullable.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST https://your-tenant.coleapp.io/api/estudiante/tareas/12/entrega \
+  -H "Authorization: Bearer {student_token}" \
+  -H "Content-Type: application/json" \
+  -d '{ "comentario": "Adjunto mis respuestas en PDF." }'
+```
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Entrega creada correctamente.",
+  "id": 55
+}
+```
+
+---
+
+### Upload Files to a Submission
+
+Attaches one or more files to an existing submission. Files are stored under `entregas/` in the `public` disk (max 10 MB each).
+
+```bash
+POST /api/estudiante/entregas/{entrega}/archivos
+Content-Type: multipart/form-data
+```
+
+<ParamField path="entrega" type="integer" required>
+  The submission (`EntregaTarea`) ID.
+</ParamField>
+
+<ParamField body="archivos" type="file[]" required>
+  Array of files. Each file cannot exceed 10 MB.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{
+  "message": "Archivos subidos correctamente.",
+  "archivos": [
+    {
+      "id": 21,
+      "nombre_original": "tarea_ana.pdf",
+      "url": "/storage/entregas/1718394600_tarea_ana.pdf"
+    }
+  ]
+}
+```
+
+---
+
+### Delete a Submission File
+
+Removes a file from a student submission and deletes it from disk.
+
+```bash
+DELETE /api/estudiante/entrega-archivos/{archivo}
+```
+
+<ParamField path="archivo" type="integer" required>
+  The `EntregaTareaArchivo` record ID to delete.
+</ParamField>
+
+**Example response** `200 OK`
+
+```json
+{ "message": "Archivo eliminado." }
+```
+
+---
+
+## Submission Detail (Professor)
+
+### View Submission Detail
+
+Returns the full details of a single student submission, including student info, comment, status, timestamp, and all attached files. Only accessible by the professor who owns the assignment.
+
+```bash
+GET /api/entregas/{entrega}
+```
+
+<ParamField path="entrega" type="integer" required>
+  The submission ID.
+</ParamField>
+
+<ResponseField name="id" type="integer">
+  Submission ID.
+</ResponseField>
+
+<ResponseField name="estudiante" type="object">
+  <Expandable title="estudiante">
+    <ResponseField name="id" type="integer">Student ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Student full name.</ResponseField>
+    <ResponseField name="codigo" type="string">Student enrollment code.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="comentario" type="string | null">
+  The student's submission comment.
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Submission state (e.g. `entregado`).
+</ResponseField>
+
+<ResponseField name="fecha_entrega" type="string | null">
+  Formatted timestamp of submission (`Y-m-d H:i:s`).
+</ResponseField>
+
+<ResponseField name="archivos" type="array">
+  List of files attached to the submission, each with `id`, `nombre_original`, and `url`.
+</ResponseField>

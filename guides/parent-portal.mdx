@@ -1,0 +1,373 @@
+---
+title: "Parent Portal: Monitor Your Children's School Activity"
+sidebarTitle: "Parent Portal"
+description: "Parents with the padre role can view their children's grades, attendance, agenda tasks, and anecdotal records through dedicated endpoints."
+---
+
+Cole includes a dedicated parent portal that gives parents and guardians read-only access to their children's academic life. Parents authenticate the same way as any other user — via `POST /api/auth/login` — and their `padre` role restricts them to their own linked children's data. No grading or administrative action is possible from a parent account.
+
+---
+
+## Setting Up a Parent Account
+
+Parent accounts are created and linked to students exclusively by a `director`. There is no self-registration flow for parents.
+
+### Step 1 — Create the Parent Account
+
+```bash
+curl -X POST https://api.yourschool.com/api/padre-familias \
+  -H "Authorization: Bearer <director-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Roberto García",
+    "email": "roberto@example.com",
+    "password": "securepassword",
+    "telefono": "+1 555-0100",
+    "cedula": "1712345678"
+  }'
+```
+
+```json
+{
+  "id": 7,
+  "name": "Roberto García",
+  "email": "roberto@example.com",
+  "telefono": "+1 555-0100",
+  "cedula": "1712345678",
+  "role": "padre"
+}
+```
+
+Other parent management operations (all require `director` role):
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/padre-familias` | List all parent accounts |
+| `GET` | `/api/padre-familias/{id}` | Get a specific parent |
+| `PUT` | `/api/padre-familias/{id}` | Update a parent account |
+| `DELETE` | `/api/padre-familias/{id}` | Delete a parent account |
+| `GET` | `/api/padre-familias/{id}/estudiantes` | List students linked to a parent |
+
+### Step 2 — Link Children to the Parent
+
+After the parent account is created, link one or more enrolled students to it:
+
+```bash
+curl -X POST https://api.yourschool.com/api/padre-familias/asignar-estudiante \
+  -H "Authorization: Bearer <director-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "padre_familia_id": 7,
+    "estudiante_id": 101
+  }'
+```
+
+```json
+{
+  "message": "Estudiante asignado correctamente",
+  "padre_familia_id": 7,
+  "estudiante_id": 101
+}
+```
+
+A parent can be linked to multiple children. Repeat this request for each child.
+
+---
+
+## Parent Authentication
+
+Parents log in using the same endpoint as all other users:
+
+```bash
+curl -X POST https://api.yourschool.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "roberto@example.com",
+    "password": "securepassword"
+  }'
+```
+
+```json
+{
+  "token": "3|def456...",
+  "user": {
+    "id": 15,
+    "name": "Roberto García",
+    "email": "roberto@example.com",
+    "role": "padre"
+  }
+}
+```
+
+Use the returned token as `Authorization: Bearer <token>` on all parent portal requests below.
+
+---
+
+## Parent Portal Endpoints
+
+### List Linked Children
+
+Returns all students linked to the authenticated parent.
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/mis-hijos \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+[
+  {
+    "id": 101,
+    "nombre": "Ana García",
+    "curso": "7th Grade",
+    "paralelo": "A"
+  },
+  {
+    "id": 105,
+    "nombre": "Pedro García",
+    "curso": "5th Grade",
+    "paralelo": "B"
+  }
+]
+```
+
+---
+
+### All Pending Tasks Across Children
+
+Returns outstanding agenda tasks for all linked children at once — useful for a parent who wants a single view of what needs to be done across the household.
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/mis-hijos/agendas \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+[
+  {
+    "id": 30,
+    "titulo": "Math Homework – Chapter 4",
+    "descripcion": "Exercises 4.1 to 4.10",
+    "fecha_entrega": "2024-10-10",
+    "estudiante_id": 101,
+    "estudiante": "Ana García",
+    "estado": "pendiente"
+  },
+  {
+    "id": 31,
+    "titulo": "Science Project Draft",
+    "descripcion": "First draft of the plant biology project",
+    "fecha_entrega": "2024-10-12",
+    "estudiante_id": 105,
+    "estudiante": "Pedro García",
+    "estado": "pendiente"
+  }
+]
+```
+
+<Note>
+  This endpoint requires the `agenda` module to be active for the tenant. If the module is inactive, the endpoint returns `403 Forbidden`.
+</Note>
+
+---
+
+### Agenda Tasks for a Specific Child
+
+Retrieve agenda tasks for a single linked child:
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/mis-hijos/101/agendas \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+[
+  {
+    "id": 30,
+    "titulo": "Math Homework – Chapter 4",
+    "descripcion": "Exercises 4.1 to 4.10",
+    "fecha_entrega": "2024-10-10",
+    "subject": "Mathematics",
+    "estado": "pendiente",
+    "archivos": []
+  },
+  {
+    "id": 28,
+    "titulo": "Reading Assignment",
+    "descripcion": "Read pages 50–75 of the course novel",
+    "fecha_entrega": "2024-10-08",
+    "subject": "Language Arts",
+    "estado": "entregado",
+    "archivos": [
+      {
+        "id": 5,
+        "nombre": "reading_notes.pdf",
+        "url": "/storage/agenda/reading_notes.pdf"
+      }
+    ]
+  }
+]
+```
+
+---
+
+### Child's Grades and Report Card
+
+Retrieve the full grade report (boleta) for a specific child. The response mirrors the gradebook structure teachers see, filtered to the child's enrolment.
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/mis-hijos/101/notas \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+{
+  "estudiante": {
+    "id": 101,
+    "nombre": "Ana García"
+  },
+  "materias": [
+    {
+      "subject": "Mathematics",
+      "periodos": [
+        {
+          "periodo": "Q1 – First Quarter",
+          "criterios": [
+            { "nombre": "Class Participation", "porcentaje": 20, "nota": 88 },
+            { "nombre": "Homework",            "porcentaje": 30, "nota": 92 },
+            { "nombre": "Midterm Exam",         "porcentaje": 50, "nota": 85 }
+          ],
+          "promedio": 87.6
+        }
+      ],
+      "promedio_final": 87.6
+    },
+    {
+      "subject": "Language Arts",
+      "periodos": [
+        {
+          "periodo": "Q1 – First Quarter",
+          "criterios": [
+            { "nombre": "Reading Comprehension", "porcentaje": 40, "nota": 90 },
+            { "nombre": "Written Expression",    "porcentaje": 60, "nota": 82 }
+          ],
+          "promedio": 85.2
+        }
+      ],
+      "promedio_final": 85.2
+    }
+  ],
+  "promedio_general": 86.4
+}
+```
+
+---
+
+### Child's Anecdotal Records
+
+Anecdotal records (`anecdotarios`) are notes written by teachers documenting significant observations about a student's behaviour or academic progress.
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/mis-hijos/101/anecdotarios \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+[
+  {
+    "id": 12,
+    "estudiante_id": 101,
+    "profesor": "Prof. Sandra Torres",
+    "subject": "Mathematics",
+    "descripcion": "Ana showed exceptional problem-solving ability during today's group activity.",
+    "fecha": "2024-10-05"
+  },
+  {
+    "id": 9,
+    "estudiante_id": 101,
+    "profesor": "Prof. Juan Morales",
+    "subject": "Language Arts",
+    "descripcion": "Reminded Ana to complete reading assignments on time.",
+    "fecha": "2024-09-28"
+  }
+]
+```
+
+<Note>
+  This endpoint requires the `anecdotario` module to be active for the tenant.
+</Note>
+
+---
+
+### Child's Attendance Records
+
+View the full attendance history for a linked child across all class assignments.
+
+```bash
+curl -X GET https://api.yourschool.com/api/padre/hijos/101/asistencias \
+  -H "Authorization: Bearer <padre-token>"
+```
+
+```json
+[
+  {
+    "fecha": "2024-10-09",
+    "subject": "Mathematics",
+    "estado": "presente",
+    "observacion": null
+  },
+  {
+    "fecha": "2024-10-07",
+    "subject": "Mathematics",
+    "estado": "falta",
+    "observacion": "Parent called in sick"
+  },
+  {
+    "fecha": "2024-10-09",
+    "subject": "Language Arts",
+    "estado": "tarde",
+    "observacion": "Arrived 10 minutes late"
+  }
+]
+```
+
+<Note>
+  This endpoint requires the `asistencia` module to be active for the tenant.
+</Note>
+
+---
+
+## Portal Endpoint Summary
+
+<CardGroup cols={2}>
+  <Card title="Children" icon="users">
+    `GET /api/padre/mis-hijos`
+
+    List all students linked to the authenticated parent.
+  </Card>
+  <Card title="All Pending Tasks" icon="list-check">
+    `GET /api/padre/mis-hijos/agendas`
+
+    Pending agenda tasks across every linked child. Requires `agenda` module.
+  </Card>
+  <Card title="Child's Agenda" icon="calendar">
+    `GET /api/padre/mis-hijos/{estudianteId}/agendas`
+
+    Agenda tasks filtered to one child. Requires `agenda` module.
+  </Card>
+  <Card title="Grades & Report Card" icon="graduation-cap">
+    `GET /api/padre/mis-hijos/{estudiante}/notas`
+
+    Full grade report with weighted averages per subject and period.
+  </Card>
+  <Card title="Anecdotal Records" icon="note-sticky">
+    `GET /api/padre/mis-hijos/{estudiante}/anecdotarios`
+
+    Teacher observations about the child. Requires `anecdotario` module.
+  </Card>
+  <Card title="Attendance" icon="clipboard-check">
+    `GET /api/padre/hijos/{estudiante}/asistencias`
+
+    Full attendance history across all class sessions. Requires `asistencia` module.
+  </Card>
+</CardGroup>

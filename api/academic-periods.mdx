@@ -1,0 +1,411 @@
+---
+title: "Academic Periods API: Manage School Years and Terms"
+sidebarTitle: "Academic Periods"
+description: "Create, activate, and manage academic periods (school terms/years). All courses, enrollments, and grades are scoped to a period."
+---
+
+An **academic period** (`AcademicPeriod`) represents a discrete interval of instruction — a school year, a semester, a trimester, or any other term the school defines. Every record that tracks student progress (enrollments, grades, attendance) is scoped to one academic period. Only one period may be active at a time per tenant; activating a new period automatically deactivates all others for that school.
+
+Periods are identified by a human-readable `nombre` (name), a start date (`fecha_inicio`), and an end date (`fecha_fin`), all of which are scoped to the authenticated user's `tenant_id`. Directors have full CRUD access; professors can read periods and retrieve the currently active one.
+
+<Note>
+  All endpoints require an active Sanctum token. Include `Authorization: Bearer <token>` on every request.
+</Note>
+
+---
+
+## GET /api/periodos
+
+Returns all academic periods belonging to the authenticated user's tenant.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director` or `profesor`
+
+### Response `200 OK`
+
+Returns a JSON array of academic period objects.
+
+<ResponseField name="id" type="integer">Unique period ID.</ResponseField>
+<ResponseField name="nombre" type="string">Name of the period. Example: `"2026-I"`.</ResponseField>
+<ResponseField name="fecha_inicio" type="string">Start date in `YYYY-MM-DD` format.</ResponseField>
+<ResponseField name="fecha_fin" type="string">End date in `YYYY-MM-DD` format.</ResponseField>
+<ResponseField name="activo" type="boolean">Whether this period is currently active.</ResponseField>
+<ResponseField name="tenant_id" type="integer">The tenant this period belongs to.</ResponseField>
+<ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+
+### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/periodos \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "2025-II",
+    "fecha_inicio": "2025-08-01",
+    "fecha_fin": "2025-12-15",
+    "activo": false,
+    "tenant_id": 3,
+    "created_at": "2025-07-15T08:00:00.000000Z",
+    "updated_at": "2026-02-01T09:00:00.000000Z"
+  },
+  {
+    "id": 2,
+    "nombre": "2026-I",
+    "fecha_inicio": "2026-02-01",
+    "fecha_fin": "2026-07-15",
+    "activo": true,
+    "tenant_id": 3,
+    "created_at": "2026-01-20T10:00:00.000000Z",
+    "updated_at": "2026-02-01T09:00:00.000000Z"
+  }
+]
+```
+
+---
+
+## GET /api/periodos/activo
+
+Returns the single period currently marked as `activo = true` for the authenticated user's tenant. If no active period exists, the endpoint returns `404`.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director` or `profesor`
+
+<Warning>
+  This route is registered **before** `GET /api/periodos/{id}` in the router. The literal segment `activo` is not treated as a numeric ID. Always use the dedicated `/activo` route to fetch the active period rather than passing a string to `/{id}`.
+</Warning>
+
+### Response `200 OK`
+
+Returns the active academic period object (same shape as a single item from `GET /api/periodos`).
+
+### Error `404 Not Found`
+
+```json
+{
+  "message": "No hay periodo activo"
+}
+```
+
+### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/periodos/activo \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "id": 2,
+  "nombre": "2026-I",
+  "fecha_inicio": "2026-02-01",
+  "fecha_fin": "2026-07-15",
+  "activo": true,
+  "tenant_id": 3,
+  "created_at": "2026-01-20T10:00:00.000000Z",
+  "updated_at": "2026-02-01T09:00:00.000000Z"
+}
+```
+
+---
+
+## POST /api/periodos
+
+Creates a new academic period for the authenticated director's tenant. If `activo` is set to `true`, all other periods in the same tenant are automatically deactivated.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+### Request body
+
+<ParamField body="nombre" type="string" required>
+  Name of the academic period. Must be unique within the `academic_periods` table. Example: `"2026-II"`.
+</ParamField>
+
+<ParamField body="fecha_inicio" type="string" required>
+  Start date of the period. Must be a valid date in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="fecha_fin" type="string" required>
+  End date of the period. Must be a valid date **after** `fecha_inicio`.
+</ParamField>
+
+<ParamField body="activo" type="boolean">
+  Optional. Defaults to `false`. If `true`, all other periods for this tenant are deactivated before the new period is created.
+</ParamField>
+
+### Response `201 Created`
+
+Returns the newly created academic period object.
+
+<ResponseField name="id" type="integer">Auto-generated period ID.</ResponseField>
+<ResponseField name="nombre" type="string">Period name as provided.</ResponseField>
+<ResponseField name="fecha_inicio" type="string">Start date.</ResponseField>
+<ResponseField name="fecha_fin" type="string">End date.</ResponseField>
+<ResponseField name="activo" type="boolean">Activation status.</ResponseField>
+<ResponseField name="tenant_id" type="integer">The tenant this period was created under.</ResponseField>
+<ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+
+### Example
+
+```bash
+curl -s -X POST https://your-cole-api.test/api/periodos \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..." \
+  -d '{
+    "nombre": "2026-II",
+    "fecha_inicio": "2026-08-01",
+    "fecha_fin": "2026-12-15",
+    "activo": false
+  }'
+```
+
+```json
+{
+  "id": 3,
+  "nombre": "2026-II",
+  "fecha_inicio": "2026-08-01",
+  "fecha_fin": "2026-12-15",
+  "activo": false,
+  "tenant_id": 3,
+  "created_at": "2026-07-25T11:00:00.000000Z",
+  "updated_at": "2026-07-25T11:00:00.000000Z"
+}
+```
+
+---
+
+## GET /api/periodos/{id}
+
+Returns a single academic period by its numeric ID.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the academic period to retrieve.
+</ParamField>
+
+### Response `200 OK`
+
+Returns the academic period object. Returns `404` if the ID does not exist.
+
+### Example
+
+```bash
+curl -s -X GET https://your-cole-api.test/api/periodos/2 \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "id": 2,
+  "nombre": "2026-I",
+  "fecha_inicio": "2026-02-01",
+  "fecha_fin": "2026-07-15",
+  "activo": true,
+  "tenant_id": 3,
+  "created_at": "2026-01-20T10:00:00.000000Z",
+  "updated_at": "2026-02-01T09:00:00.000000Z"
+}
+```
+
+---
+
+## PUT /api/periodos/{id}
+
+Updates an existing academic period. Supports two modes:
+
+- **Full update**: provide `nombre`, `fecha_inicio`, `fecha_fin`, and optionally `activo`. All required fields are validated.
+- **Status-only update**: provide only `activo` (single key). Skips name/date validation and just toggles the active flag.
+
+In both modes, if the resulting `activo` value is `true`, all other periods in the tenant are set to `activo = false`.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the academic period to update.
+</ParamField>
+
+### Request body
+
+<ParamField body="nombre" type="string" required>
+  Updated name for the period. Required when doing a full update. Ignored in status-only mode.
+</ParamField>
+
+<ParamField body="fecha_inicio" type="string" required>
+  Updated start date in `YYYY-MM-DD` format. Required when doing a full update.
+</ParamField>
+
+<ParamField body="fecha_fin" type="string" required>
+  Updated end date. Must be after `fecha_inicio`. Required when doing a full update.
+</ParamField>
+
+<ParamField body="activo" type="boolean">
+  Optional. If this is the **only** key sent, the endpoint performs a status-only update. If included alongside the other fields, it sets the activation status as part of the full update.
+</ParamField>
+
+### Response `200 OK`
+
+Returns the updated academic period object.
+
+### Example — full update
+
+```bash
+curl -s -X PUT https://your-cole-api.test/api/periodos/3 \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..." \
+  -d '{
+    "nombre": "2026-II Revisado",
+    "fecha_inicio": "2026-08-05",
+    "fecha_fin": "2026-12-20",
+    "activo": false
+  }'
+```
+
+```json
+{
+  "id": 3,
+  "nombre": "2026-II Revisado",
+  "fecha_inicio": "2026-08-05",
+  "fecha_fin": "2026-12-20",
+  "activo": false,
+  "tenant_id": 3,
+  "created_at": "2026-07-25T11:00:00.000000Z",
+  "updated_at": "2026-07-25T14:00:00.000000Z"
+}
+```
+
+### Example — status-only update
+
+```bash
+curl -s -X PUT https://your-cole-api.test/api/periodos/3 \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..." \
+  -d '{ "activo": true }'
+```
+
+```json
+{
+  "id": 3,
+  "nombre": "2026-II Revisado",
+  "fecha_inicio": "2026-08-05",
+  "fecha_fin": "2026-12-20",
+  "activo": true,
+  "tenant_id": 3,
+  "created_at": "2026-07-25T11:00:00.000000Z",
+  "updated_at": "2026-07-25T15:00:00.000000Z"
+}
+```
+
+---
+
+## DELETE /api/periodos/{id}
+
+Permanently deletes an academic period record.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+<Warning>
+  Deleting an academic period may cascade to dependent records (courses, enrollments, grades) depending on the foreign key constraints defined on related tables. Ensure the period is no longer in use before deleting it.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the academic period to delete.
+</ParamField>
+
+### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Periodo eliminado correctamente"`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -s -X DELETE https://your-cole-api.test/api/periodos/1 \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "message": "Periodo eliminado correctamente"
+}
+```
+
+---
+
+## PATCH /api/periodos/{id}/activar
+
+Activates the specified academic period. This is the canonical way to switch the active period: **all other periods for the tenant are set to `activo = false`** before the target period is set to `activo = true`. This guarantees at most one active period per tenant at all times.
+
+**Authentication required:** `Authorization: Bearer <token>` — role `director`
+
+<Note>
+  This endpoint is the preferred way to activate a period. It is equivalent to `PUT /api/periodos/{id}` with `{ "activo": true }` as the only key, but is more explicit and does not require knowing the status-only update behavior of `PUT`.
+</Note>
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the academic period to activate.
+</ParamField>
+
+### Response `200 OK`
+
+<ResponseField name="message" type="string">
+  Confirmation string. Example: `"Periodo activado correctamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The updated academic period record with `activo` set to `true`.
+
+  <Expandable title="data fields">
+    <ResponseField name="id" type="integer">Period ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Period name.</ResponseField>
+    <ResponseField name="fecha_inicio" type="string">Start date.</ResponseField>
+    <ResponseField name="fecha_fin" type="string">End date.</ResponseField>
+    <ResponseField name="activo" type="boolean">Always `true` in this response.</ResponseField>
+    <ResponseField name="tenant_id" type="integer">Owning tenant ID.</ResponseField>
+    <ResponseField name="created_at" type="string">ISO 8601 creation timestamp.</ResponseField>
+    <ResponseField name="updated_at" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl -s -X PATCH https://your-cole-api.test/api/periodos/3/activar \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 5|directorToken..."
+```
+
+```json
+{
+  "message": "Periodo activado correctamente",
+  "data": {
+    "id": 3,
+    "nombre": "2026-II Revisado",
+    "fecha_inicio": "2026-08-05",
+    "fecha_fin": "2026-12-20",
+    "activo": true,
+    "tenant_id": 3,
+    "created_at": "2026-07-25T11:00:00.000000Z",
+    "updated_at": "2026-07-25T16:00:00.000000Z"
+  }
+}
+```
